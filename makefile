@@ -11,8 +11,11 @@ CC = gcc
 CFLAGS = -g
 LIBS = -lcurl
 
+SERVICE = house-notification.service
+
 .PHONY: build run kill clean debug
 
+#For running the program 
 debug:
 	@$(SSH) -V
 	@$(SSH) $(HOST) 'echo remote ssh works'
@@ -28,3 +31,23 @@ kill:
 
 clean:
 	$(SSH) $(HOST) 'cd $(DIR) && rm -f $(TARGET)'
+
+
+#For managing the system service, which is actively running
+start:
+	$(SSH) $(HOST) 'sudo systemctl start $(SERVICE)'
+
+stop:
+	$(SSH) $(HOST) 'sudo systemctl stop $(SERVICE)'
+
+restart:
+	$(SSH) $(HOST) 'sudo systemctl restart $(SERVICE)'
+
+status:
+	$(SSH) $(HOST) 'sudo systemctl status $(SERVICE) --no-pager'
+
+disable:
+	$(SSH) $(HOST) 'sudo systemctl disable $(SERVICE)'
+
+enable:
+	$(SSH) $(HOST) 'sudo systemctl enable $(SERVICE)'
