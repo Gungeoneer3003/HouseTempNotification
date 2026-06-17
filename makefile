@@ -13,7 +13,7 @@ LIBS = -lcurl
 
 SERVICE = house-notification.service
 
-.PHONY: build run kill clean debug
+.PHONY: build run kill clean debug start stop restart status disable enable
 
 #For running the program 
 debug:
