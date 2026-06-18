@@ -1,3 +1,5 @@
 keys.env
 house_notify.lock
 house_notify.log
+test_core
+test_notification
