@@ -7,14 +7,23 @@ DIR = ~/Desktop/HouseTempNotification
 
 TARGET = houseNotif
 SRC_DIR = src
-INC_DIR = include
-SRC = $(SRC_DIR)/houseNotif.c $(SRC_DIR)/config.c $(SRC_DIR)/house_api.c $(SRC_DIR)/http_client.c $(SRC_DIR)/instance_lock.c $(SRC_DIR)/json_utils.c $(SRC_DIR)/logger.c $(SRC_DIR)/portable.c $(SRC_DIR)/recommendation.c
+CONFIG_DIR = $(SRC_DIR)/config
+HOUSE_DIR = $(SRC_DIR)/house
+LOCK_DIR = $(SRC_DIR)/lock
+JSON_DIR = $(SRC_DIR)/json
+LOGGER_DIR = $(SRC_DIR)/logger
+HTTP_DIR = $(SRC_DIR)/http
+PORTABLE_DIR = $(SRC_DIR)/portable
+RECOMMENDATION_DIR = $(SRC_DIR)/recommendation
+SETTINGS_DIR = $(SRC_DIR)/settings
+MODULE_DIRS = $(CONFIG_DIR) $(HOUSE_DIR) $(LOCK_DIR) $(JSON_DIR) $(LOGGER_DIR) $(HTTP_DIR) $(PORTABLE_DIR) $(RECOMMENDATION_DIR) $(SETTINGS_DIR)
+SRC = $(SRC_DIR)/houseNotif.c $(CONFIG_DIR)/config.c $(HOUSE_DIR)/houseApi.c $(HTTP_DIR)/httpClient.c $(LOCK_DIR)/instanceLock.c $(JSON_DIR)/jsonUtils.c $(LOGGER_DIR)/logger.c $(PORTABLE_DIR)/portable.c $(RECOMMENDATION_DIR)/rec.c
 TEST_TARGET = test_core
-TEST_SRC = tests/test_core.c $(SRC_DIR)/json_utils.c $(SRC_DIR)/recommendation.c
+TEST_SRC = tests/test_core.c $(JSON_DIR)/jsonUtils.c $(RECOMMENDATION_DIR)/rec.c
 NOTIFY_TEST_TARGET = test_notification
-NOTIFY_TEST_SRC = tests/test_notification.c $(SRC_DIR)/config.c $(SRC_DIR)/house_api.c $(SRC_DIR)/http_client.c $(SRC_DIR)/json_utils.c $(SRC_DIR)/portable.c
+NOTIFY_TEST_SRC = tests/test_notification.c $(CONFIG_DIR)/config.c $(HOUSE_DIR)/houseApi.c $(HTTP_DIR)/httpClient.c $(JSON_DIR)/jsonUtils.c $(PORTABLE_DIR)/portable.c
 CC = gcc
-CFLAGS = -g -std=c11 -Wall -Wextra -Wpedantic -I$(INC_DIR)
+CFLAGS = -g -std=c11 -Wall -Wextra -Wpedantic $(addprefix -I,$(MODULE_DIRS))
 LIBS = -lcurl
 
 SERVICE = house-notification.service

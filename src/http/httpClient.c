@@ -1,19 +1,29 @@
-#include "http_client.h"
+#include "httpClient.h"
 
 #include <curl/curl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include "settings.h"
+#ifndef CURL_CONNECT_TIMEOUT_SECONDS
+#define CURL_CONNECT_TIMEOUT_SECONDS 10L
+#endif
 
-static size_t write_callback(void* contents, size_t size, size_t nmemb, void* userp);
-static int curl_http_ok(CURL* curl, CURLcode res, const char* action);
-static void curl_set_common_options(CURL* curl, HttpResponse* response);
-static char* build_form_body(CURL* curl, const HttpFormField* fields, size_t field_count);
-static void free_encoded_fields(char** keys, char** values, size_t field_count);
+#ifndef CURL_TOTAL_TIMEOUT_SECONDS
+#define CURL_TOTAL_TIMEOUT_SECONDS 20L
+#endif
 
-void http_response_init(HttpResponse* response) {
+#ifndef MAX_RESPONSE_BYTES
+#define MAX_RESPONSE_BYTES ((size_t)64 * 1024)
+#endif
+
+static size_t writeCallback(void* contents, size_t size, size_t nmemb, void* userp);
+static int curlOk(CURL* curl, CURLcode res, const char* action);
+static void setCurlOptions(CURL* curl, HttpResponse* response);
+static char* buildFormBody(CURL* curl, const HttpFormField* fields, size_t field_count);
+static void freeEncodedFields(char** keys, char** values, size_t field_count);
+
+void httpResponseInit(HttpResponse* response) {
     if (!response) {
         return;
     }
@@ -22,7 +32,7 @@ void http_response_init(HttpResponse* response) {
     response->size = 0;
 }
 
-void http_response_free(HttpResponse* response) {
+void httpResponseFree(HttpResponse* response) {
     if (!response) {
         return;
     }
@@ -32,12 +42,12 @@ void http_response_free(HttpResponse* response) {
     response->size = 0;
 }
 
-int http_get(const char* url, const char* action, HttpResponse* response) {
+int httpGet(const char* url, const char* action, HttpResponse* response) {
     if (!url || !response) {
         return 0;
     }
 
-    http_response_init(response);
+    httpResponseInit(response);
 
     CURL* curl = curl_easy_init();
     if (!curl) {
@@ -46,10 +56,10 @@ int http_get(const char* url, const char* action, HttpResponse* response) {
     }
 
     curl_easy_setopt(curl, CURLOPT_URL, url);
-    curl_set_common_options(curl, response);
+    setCurlOptions(curl, response);
 
     CURLcode res = curl_easy_perform(curl);
-    int ok = curl_http_ok(curl, res, action ? action : "HTTP GET");
+    int ok = curlOk(curl, res, action ? action : "HTTP GET");
     if (res == CURLE_WRITE_ERROR && response->size >= MAX_RESPONSE_BYTES) {
         fprintf(stderr, "%s response exceeded %zu bytes\n",
                 action ? action : "HTTP GET", MAX_RESPONSE_BYTES);
@@ -60,16 +70,16 @@ int http_get(const char* url, const char* action, HttpResponse* response) {
     return ok;
 }
 
-int http_post_form(const char* url,
-                   const HttpFormField* fields,
-                   size_t field_count,
-                   const char* action,
-                   HttpResponse* response) {
+int httpPostForm(const char* url,
+                 const HttpFormField* fields,
+                 size_t field_count,
+                 const char* action,
+                 HttpResponse* response) {
     if (!url || !fields || !response) {
         return 0;
     }
 
-    http_response_init(response);
+    httpResponseInit(response);
 
     CURL* curl = curl_easy_init();
     if (!curl) {
@@ -77,7 +87,7 @@ int http_post_form(const char* url,
         return 0;
     }
 
-    char* postfields = build_form_body(curl, fields, field_count);
+    char* postfields = buildFormBody(curl, fields, field_count);
     if (!postfields) {
         fprintf(stderr, "Failed to build form body for %s\n", action ? action : "HTTP POST");
         curl_easy_cleanup(curl);
@@ -86,10 +96,10 @@ int http_post_form(const char* url,
 
     curl_easy_setopt(curl, CURLOPT_URL, url);
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, postfields);
-    curl_set_common_options(curl, response);
+    setCurlOptions(curl, response);
 
     CURLcode res = curl_easy_perform(curl);
-    int ok = curl_http_ok(curl, res, action ? action : "HTTP POST");
+    int ok = curlOk(curl, res, action ? action : "HTTP POST");
     if (res == CURLE_WRITE_ERROR && response->size >= MAX_RESPONSE_BYTES) {
         fprintf(stderr, "%s response exceeded %zu bytes\n",
                 action ? action : "HTTP POST", MAX_RESPONSE_BYTES);
@@ -101,15 +111,15 @@ int http_post_form(const char* url,
     return ok;
 }
 
-static void curl_set_common_options(CURL* curl, HttpResponse* response) {
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
+static void setCurlOptions(CURL* curl, HttpResponse* response) {
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeCallback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)response);
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, CURL_CONNECT_TIMEOUT_SECONDS);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, CURL_TOTAL_TIMEOUT_SECONDS);
     curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
 }
 
-static size_t write_callback(void* contents, size_t size, size_t nmemb, void* userp) {
+static size_t writeCallback(void* contents, size_t size, size_t nmemb, void* userp) {
     if (nmemb != 0 && size > ((size_t)-1) / nmemb) {
         return 0;
     }
@@ -138,7 +148,7 @@ static size_t write_callback(void* contents, size_t size, size_t nmemb, void* us
     return total_size;
 }
 
-static int curl_http_ok(CURL* curl, CURLcode res, const char* action) {
+static int curlOk(CURL* curl, CURLcode res, const char* action) {
     if (res != CURLE_OK) {
         fprintf(stderr, "%s failed: %s\n", action, curl_easy_strerror(res));
         return 0;
@@ -155,7 +165,7 @@ static int curl_http_ok(CURL* curl, CURLcode res, const char* action) {
     return 1;
 }
 
-static char* build_form_body(CURL* curl, const HttpFormField* fields, size_t field_count) {
+static char* buildFormBody(CURL* curl, const HttpFormField* fields, size_t field_count) {
     char** keys = calloc(field_count, sizeof(*keys));
     char** values = calloc(field_count, sizeof(*values));
     if (!keys || !values) {
@@ -169,7 +179,7 @@ static char* build_form_body(CURL* curl, const HttpFormField* fields, size_t fie
         keys[i] = curl_easy_escape(curl, fields[i].key ? fields[i].key : "", 0);
         values[i] = curl_easy_escape(curl, fields[i].value ? fields[i].value : "", 0);
         if (!keys[i] || !values[i]) {
-            free_encoded_fields(keys, values, field_count);
+            freeEncodedFields(keys, values, field_count);
             return NULL;
         }
 
@@ -181,7 +191,7 @@ static char* build_form_body(CURL* curl, const HttpFormField* fields, size_t fie
         }
 
         if (field_len > ((size_t)-1) - total) {
-            free_encoded_fields(keys, values, field_count);
+            freeEncodedFields(keys, values, field_count);
             return NULL;
         }
 
@@ -190,7 +200,7 @@ static char* build_form_body(CURL* curl, const HttpFormField* fields, size_t fie
 
     char* body = malloc(total);
     if (!body) {
-        free_encoded_fields(keys, values, field_count);
+        freeEncodedFields(keys, values, field_count);
         return NULL;
     }
 
@@ -200,17 +210,17 @@ static char* build_form_body(CURL* curl, const HttpFormField* fields, size_t fie
                          i > 0 ? "&" : "", keys[i], values[i]);
         if (n < 0 || (size_t)n >= total - used) {
             free(body);
-            free_encoded_fields(keys, values, field_count);
+            freeEncodedFields(keys, values, field_count);
             return NULL;
         }
         used += (size_t)n;
     }
 
-    free_encoded_fields(keys, values, field_count);
+    freeEncodedFields(keys, values, field_count);
     return body;
 }
 
-static void free_encoded_fields(char** keys, char** values, size_t field_count) {
+static void freeEncodedFields(char** keys, char** values, size_t field_count) {
     if (keys) {
         for (size_t i = 0; i < field_count; i++) {
             if (keys[i]) {

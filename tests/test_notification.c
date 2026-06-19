@@ -4,9 +4,9 @@
 #include <time.h>
 
 #include "config.h"
-#include "house_api.h"
+#include "houseApi.h"
 
-static const char* get_message(int argc, char** argv, char* buffer, size_t buffer_size) {
+static const char* getMessage(int argc, char** argv, char* buffer, size_t buffer_size) {
     const char* env_message = getenv("TEST_NOTIFICATION_MESSAGE");
     if (env_message && *env_message) {
         return env_message;
@@ -26,9 +26,9 @@ static const char* get_message(int argc, char** argv, char* buffer, size_t buffe
 int main(int argc, char** argv) {
     AppConfig config;
     char default_message[160];
-    const char* message = get_message(argc, argv, default_message, sizeof(default_message));
+    const char* message = getMessage(argc, argv, default_message, sizeof(default_message));
 
-    if (!config_load(&config, "keys.env")) {
+    if (!configLoad(&config, "keys.env")) {
         fprintf(stderr, "Failed to load notification config\n");
         return EXIT_FAILURE;
     }
@@ -38,7 +38,7 @@ int main(int argc, char** argv) {
         return EXIT_FAILURE;
     }
 
-    int ok = pushover_send_message(&config, message);
+    int ok = pushoverSendMessage(&config, message);
     curl_global_cleanup();
 
     if (!ok) {

@@ -1,4 +1,4 @@
-#include "json_utils.h"
+#include "jsonUtils.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-int json_parse_int(const char* json, const char* key, int* out) {
+int jsonParseInt(const char* json, const char* key, int* out) {
     if (!json || !key || !out) {
         return 0;
     }

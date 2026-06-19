@@ -16,7 +16,7 @@ void configInitDefaults(AppConfig* config);
 int configLoad(AppConfig* config, const char* env_file);
 static char* trimWhitespace(char* str);
 static void loadDotenv(const char* filename);
-static int buildLinks(AppConfig* config);
+static int buildUrls(AppConfig* config);
 
 //For the default config values
 void configInitDefaults(AppConfig* config) {
@@ -86,11 +86,11 @@ int configLoad(AppConfig* config, const char* env_file) {
     }
 
     //Build the full URLs for CGI and power shutoff
-    return buildLinks(config);
+    return buildUrls(config);
 }
 
 //Build the full URLs for CGI and power shutoff 
-static int buildLinks(AppConfig* config) {
+static int buildUrls(AppConfig* config) {
     //Ensure that the house_link ends with a slash
     int n = snprintf(config->cgi_url, sizeof(config->cgi_url), "%s%s",
                      config->house_link, config->cgi_part);

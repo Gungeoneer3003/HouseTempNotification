@@ -2,7 +2,7 @@
 #define _POSIX_C_SOURCE 200809L
 #endif
 
-#include "instance_lock.h"
+#include "instanceLock.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -21,7 +21,7 @@
 #endif
 
 #ifdef _WIN32
-static void print_windows_error(const char* action, const char* path, DWORD error_code) {
+static void printWindowsError(const char* action, const char* path, DWORD error_code) {
     if (error_code == ERROR_SHARING_VIOLATION || error_code == ERROR_LOCK_VIOLATION) {
         fprintf(stderr, "Another %s instance is already running\n", path);
     } else {
@@ -31,7 +31,7 @@ static void print_windows_error(const char* action, const char* path, DWORD erro
 }
 #endif
 
-int instance_lock_acquire(InstanceLock* lock, const char* path) {
+int instanceLockAcquire(InstanceLock* lock, const char* path) {
     if (!lock || !path) {
         return 0;
     }
@@ -45,7 +45,7 @@ int instance_lock_acquire(InstanceLock* lock, const char* path) {
                                 FILE_ATTRIBUTE_NORMAL,
                                 NULL);
     if (handle == INVALID_HANDLE_VALUE) {
-        print_windows_error("Opening lock file", path, GetLastError());
+        printWindowsError("Opening lock file", path, GetLastError());
         return 0;
     }
 
@@ -57,7 +57,7 @@ int instance_lock_acquire(InstanceLock* lock, const char* path) {
                     MAXDWORD,
                     MAXDWORD,
                     &overlapped)) {
-        print_windows_error("Locking", path, GetLastError());
+        printWindowsError("Locking", path, GetLastError());
         CloseHandle(handle);
         return 0;
     }
@@ -66,7 +66,7 @@ int instance_lock_acquire(InstanceLock* lock, const char* path) {
     SetEndOfFile(handle);
 
     char pid_text[64];
-    int n = snprintf(pid_text, sizeof(pid_text), "%lld\n", portable_process_id());
+    int n = snprintf(pid_text, sizeof(pid_text), "%lld\n", portableProcessId());
     if (n > 0 && (size_t)n < sizeof(pid_text)) {
         DWORD written = 0;
         WriteFile(handle, pid_text, (DWORD)n, &written, NULL);
@@ -100,7 +100,7 @@ int instance_lock_acquire(InstanceLock* lock, const char* path) {
 
     if (ftruncate(fd, 0) == 0) {
         char pid_text[64];
-        int n = snprintf(pid_text, sizeof(pid_text), "%lld\n", portable_process_id());
+        int n = snprintf(pid_text, sizeof(pid_text), "%lld\n", portableProcessId());
         if (n > 0 && (size_t)n < sizeof(pid_text)) {
             ssize_t written = write(fd, pid_text, (size_t)n);
             (void)written;
@@ -113,7 +113,7 @@ int instance_lock_acquire(InstanceLock* lock, const char* path) {
 #endif
 }
 
-void instance_lock_release(InstanceLock* lock) {
+void instanceLockRelease(InstanceLock* lock) {
     if (!lock || !lock->locked) {
         return;
     }

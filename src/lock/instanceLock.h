@@ -15,7 +15,7 @@ typedef struct {
 } InstanceLock;
 #endif
 
-int instance_lock_acquire(InstanceLock* lock, const char* path);
-void instance_lock_release(InstanceLock* lock);
+int instanceLockAcquire(InstanceLock* lock, const char* path);
+void instanceLockRelease(InstanceLock* lock);
 
 #endif

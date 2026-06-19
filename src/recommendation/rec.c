@@ -1,8 +1,8 @@
-#include "recommendation.h"
+#include "rec.h"
 
 #include "settings.h"
 
-Recommendation recommendation_get(int house, int outside_air, int power) {
+Rec getRec(int house, int outside_air, int power) {
     int diff = outside_air - house;
 
     if (!power && diff <= -OPEN_MARGIN) {
@@ -16,7 +16,7 @@ Recommendation recommendation_get(int house, int outside_air, int power) {
     return REC_NONE;
 }
 
-const char* recommendation_name(Recommendation rec) {
+const char* getRecName(Rec rec) {
     switch (rec) {
         case REC_OPEN:
             return "open";
@@ -27,10 +27,10 @@ const char* recommendation_name(Recommendation rec) {
     }
 }
 
-int recommendation_should_send(Recommendation rec,
-                               Recommendation last_sent,
-                               time_t last_sent_time,
-                               time_t now) {
+int determineRec(Rec rec,
+                             Rec last_sent,
+                             time_t last_sent_time,
+                             time_t now) {
     if (rec != last_sent) {
         return 1;
     }

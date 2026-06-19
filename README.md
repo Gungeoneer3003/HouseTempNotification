@@ -10,13 +10,18 @@ different environment, then you simply must change the ssh directory.
 The code is split by responsibility:
 
 - `src/houseNotif.c` owns the polling/debounce loop.
-- `src/recommendation.c` and `src/json_utils.c` are side-effect-free core helpers.
-- `src/config.c`, `src/logger.c`, and `src/instance_lock.c` handle local process state.
-- `src/http_client.c` owns repeated curl setup and response handling.
-- `src/house_api.c` maps the house sensor, fan control, and Pushover APIs.
-- `src/portable.c` wraps platform differences for env vars, sleep, time, and PID.
-- `include/` contains the module headers and shared settings.
+- `src/recommendation/` and `src/json/` are side-effect-free core helpers.
+- `src/config/` and `src/lock/` handle local process state.
+- `src/logger/` contains the reusable log writer/trimmer module.
+- `src/http/` contains the reusable libcurl HTTP client module.
+- `src/house/` maps the house sensor, fan control, and Pushover APIs.
+- `src/portable/` wraps platform differences for env vars, sleep, time, and PID.
+- `src/settings/` contains shared compile-time settings.
 - `tests/` contains small focused test programs.
+
+Each module folder contains its public header and implementation file, so it can
+be copied into another C program as a unit. Shared dependencies live under
+`src/` as folders too; there is no separate root `include/` directory.
 
 Run `make test` to compile and execute the small core test binary on the
 remote host. Run `make build` to compile the full notifier.

@@ -1,56 +1,68 @@
 #ifndef SETTINGS_H
 #define SETTINGS_H
-
 #include <stddef.h>
 
+//How long to wait before polling the sensor again (in seconds)
 #ifndef POLL_INTERVAL_SECONDS
 #define POLL_INTERVAL_SECONDS 300
 #endif
 
+//How many times to retry the sensor
 #ifndef SENSOR_RETRY_COUNT
 #define SENSOR_RETRY_COUNT 10
 #endif
 
+//How long to wait between sensor retries (in seconds)
 #ifndef CURL_CONNECT_TIMEOUT_SECONDS
 #define CURL_CONNECT_TIMEOUT_SECONDS 10L
 #endif
 
+//How long to wait for the entire HTTP request to complete (in seconds)
 #ifndef CURL_TOTAL_TIMEOUT_SECONDS
 #define CURL_TOTAL_TIMEOUT_SECONDS 20L
 #endif
 
+//How long to wait between retries of failed HTTP requests (in seconds)
 #ifndef MAX_RESPONSE_BYTES
 #define MAX_RESPONSE_BYTES ((size_t)64 * 1024)
 #endif
 
+//Margin for opening the windows (in degrees Fahrenheit)
 #ifndef OPEN_MARGIN
-#define OPEN_MARGIN 2
+#define OPEN_MARGIN 0
 #endif
 
+//Margin for closing the windows (in degrees Fahrenheit)
 #ifndef CLOSE_MARGIN
-#define CLOSE_MARGIN 2
+#define CLOSE_MARGIN 0
 #endif
 
+//How many consecutive identical polls are required before sending a recommendation 
 #ifndef REQUIRED_STABLE_POLLS
-#define REQUIRED_STABLE_POLLS 2
+#define REQUIRED_STABLE_POLLS 1
 #endif
 
+//Minimum number of seconds between sending the same recommendation again
 #ifndef SAME_ALERT_REMINDER_SECONDS
 #define SAME_ALERT_REMINDER_SECONDS 0
 #endif
 
+//Path to the log file
 #ifndef DEFAULT_LOG_FILE
 #define DEFAULT_LOG_FILE "house_notify.log"
 #endif
 
+//Path to the lock file
 #ifndef DEFAULT_LOCK_FILE
 #define DEFAULT_LOCK_FILE "house_notify.lock"
 #endif
 
+//Number of days to retain logs
 #ifndef LOG_RETENTION_DAYS
 #define LOG_RETENTION_DAYS 30
 #endif
 
+//How often to trim old logs (in seconds)
 #ifndef LOG_TRIM_INTERVAL_SECONDS
 #define LOG_TRIM_INTERVAL_SECONDS 86400
 #endif

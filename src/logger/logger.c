@@ -10,19 +10,21 @@
 #include <windows.h>
 #endif
 
-#include "portable.h"
-#include "settings.h"
+#ifndef LOG_RETENTION_DAYS
+#define LOG_RETENTION_DAYS 30
+#endif
 
-static void write_log_field(FILE* file, const char* value);
-static void replace_file(const char* temp_path, const char* target_path);
+static int loggerLocaltime(const time_t* value, struct tm* out);
+static void writeField(FILE* file, const char* value);
+static void replaceFile(const char* temp_path, const char* target_path);
 
-int log_append(const char* log_path,
-               const char* event,
-               int house,
-               int outside_air,
-               int power,
-               Recommendation rec,
-               const char* detail) {
+int loggerAppend(const char* log_path,
+                 const char* event,
+                 int house,
+                 int outside_air,
+                 int power,
+                 const char* recommendation,
+                 const char* detail) {
     FILE* file = fopen(log_path, "a");
     if (!file) {
         fprintf(stderr, "Failed to open log file %s\n", log_path);
@@ -33,24 +35,25 @@ int log_append(const char* log_path,
     struct tm local;
     char timestamp[32];
 
-    if (portable_localtime(&now, &local)) {
+    if (loggerLocaltime(&now, &local)) {
         strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", &local);
     } else {
         snprintf(timestamp, sizeof(timestamp), "unknown");
     }
 
     fprintf(file, "%lld|%s|%d|%d|%d|%s|",
-            (long long)now, timestamp, house, outside_air, power, recommendation_name(rec));
-    write_log_field(file, event ? event : "");
+            (long long)now, timestamp, house, outside_air, power,
+            recommendation ? recommendation : "");
+    writeField(file, event ? event : "");
     fputc('|', file);
-    write_log_field(file, detail ? detail : "");
+    writeField(file, detail ? detail : "");
     fputc('\n', file);
 
     fclose(file);
     return 1;
 }
 
-void log_trim(const char* log_path) {
+void loggerTrim(const char* log_path) {
     FILE* input = fopen(log_path, "r");
     if (!input) {
         return;
@@ -83,10 +86,22 @@ void log_trim(const char* log_path) {
 
     fclose(input);
     fclose(output);
-    replace_file(temp_path, log_path);
+    replaceFile(temp_path, log_path);
 }
 
-static void write_log_field(FILE* file, const char* value) {
+static int loggerLocaltime(const time_t* value, struct tm* out) {
+    if (!value || !out) {
+        return 0;
+    }
+
+#ifdef _WIN32
+    return localtime_s(out, value) == 0;
+#else
+    return localtime_r(value, out) != NULL;
+#endif
+}
+
+static void writeField(FILE* file, const char* value) {
     for (const char* p = value; *p; p++) {
         if (*p == '\n' || *p == '\r' || *p == '|') {
             fputc(' ', file);
@@ -96,7 +111,7 @@ static void write_log_field(FILE* file, const char* value) {
     }
 }
 
-static void replace_file(const char* temp_path, const char* target_path) {
+static void replaceFile(const char* temp_path, const char* target_path) {
 #ifdef _WIN32
     if (!MoveFileExA(temp_path, target_path, MOVEFILE_REPLACE_EXISTING)) {
         remove(temp_path);

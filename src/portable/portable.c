@@ -14,7 +14,7 @@
 #include <unistd.h>
 #endif
 
-int portable_setenv(const char* name, const char* value, int overwrite) {
+int portableSetenv(const char* name, const char* value, int overwrite) {
 #ifdef _WIN32
     if (!overwrite && getenv(name)) {
         return 0;
@@ -26,7 +26,7 @@ int portable_setenv(const char* name, const char* value, int overwrite) {
 #endif
 }
 
-int portable_localtime(const time_t* value, struct tm* out) {
+int portableLocaltime(const time_t* value, struct tm* out) {
     if (!value || !out) {
         return 0;
     }
@@ -38,7 +38,7 @@ int portable_localtime(const time_t* value, struct tm* out) {
 #endif
 }
 
-void portable_sleep_seconds(unsigned int seconds) {
+void portableSleepSeconds(unsigned int seconds) {
 #ifdef _WIN32
     while (seconds > 0) {
         DWORD chunk = seconds > 86400U ? 86400U : (DWORD)seconds;
@@ -50,7 +50,7 @@ void portable_sleep_seconds(unsigned int seconds) {
 #endif
 }
 
-long long portable_process_id(void) {
+long long portableProcessId(void) {
 #ifdef _WIN32
     return (long long)_getpid();
 #else

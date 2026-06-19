@@ -1,12 +1,12 @@
-#include "house_api.h"
+#include "houseApi.h"
 #include <stdio.h>
-#include "http_client.h"
-#include "json_utils.h"
+#include "httpClient.h"
+#include "jsonUtils.h"
 #include "portable.h"
 #include "settings.h"
 
 //Read the sensor data from the house API, with retries
-int readSensor(const AppConfig* config, SensorReading* reading) {
+int houseReadSensor(const AppConfig* config, SensorReading* reading) {
     if (!config || !reading) {
         return 0;
     }
@@ -22,16 +22,16 @@ int readSensor(const AppConfig* config, SensorReading* reading) {
             int power = 0;
 
             //Parse the JSON response to extract the sensor values
-            if (json_parse_int(response.body, "inside", &house) &&
-                json_parse_int(response.body, "oa", &outside_air) &&
-                json_parse_int(response.body, "power", &power)) {
+            if (jsonParseInt(response.body, "inside", &house) &&
+                jsonParseInt(response.body, "oa", &outside_air) &&
+                jsonParseInt(response.body, "power", &power)) {
                 
                 reading->house = house;
                 reading->outside_air = outside_air;
                 reading->power = power;
 
                 //Clean up
-                http_response_free(&response);
+                httpResponseFree(&response);
                 return 1;
             }
 
@@ -45,8 +45,8 @@ int readSensor(const AppConfig* config, SensorReading* reading) {
         }
 
         //
-        http_response_free(&response);
-        portable_sleep_seconds(1);
+        httpResponseFree(&response);
+        portableSleepSeconds(1);
     }
 
     fprintf(stderr, "Failed to read valid data from house sensor after %d attempts\n",
@@ -54,7 +54,7 @@ int readSensor(const AppConfig* config, SensorReading* reading) {
     return 0;
 }
 
-int turnOffFans(const AppConfig* config) {
+int houseTurnOffFans(const AppConfig* config) {
     if (!config) {
         return 0;
     }
@@ -63,21 +63,21 @@ int turnOffFans(const AppConfig* config) {
         HttpResponse response;
 
         if (httpGet(config->shutoff_url, "Fan shutoff request", &response)) {
-            http_response_free(&response);
+            httpResponseFree(&response);
             printf("Successfully turned off fans\n");
             return 1;
         }
 
-        http_response_free(&response);
+        httpResponseFree(&response);
         fprintf(stderr, "Fan shutoff failed attempt %d of %d\n",
                 attempt + 1, SENSOR_RETRY_COUNT);
-        portable_sleep_seconds(1);
+        portableSleepSeconds(1);
     }
 
     return 0;
 }
 
-int pushoverMessage(const AppConfig* config, const char* message) {
+int pushoverSendMessage(const AppConfig* config, const char* message) {
     if (!config || !message) {
         return 0;
     }
@@ -89,19 +89,19 @@ int pushoverMessage(const AppConfig* config, const char* message) {
     };
 
     HttpResponse response;
-    int ok = http_post_form("https://api.pushover.net/1/messages.json",
-                            fields,
-                            sizeof(fields) / sizeof(fields[0]),
-                            "Pushover request",
-                            &response);
+    int ok = httpPostForm("https://api.pushover.net/1/messages.json",
+                          fields,
+                          sizeof(fields) / sizeof(fields[0]),
+                          "Pushover request",
+                          &response);
     if (ok) {
         int status = 0;
-        if (!response.body || !json_parse_int(response.body, "status", &status) || status != 1) {
+        if (!response.body || !jsonParseInt(response.body, "status", &status) || status != 1) {
             fprintf(stderr, "Pushover response did not confirm success\n");
             ok = 0;
         }
     }
 
-    http_response_free(&response);
+    httpResponseFree(&response);
     return ok;
 }
