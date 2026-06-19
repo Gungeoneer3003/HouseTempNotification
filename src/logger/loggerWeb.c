@@ -46,6 +46,7 @@ static void sendNotFound(int client_fd);
 static void sendAll(int fd, const char* data);
 static void sendEscaped(int fd, const char* value);
 static void writeLogRows(int client_fd, const char* log_path);
+static void writeLogRow(int client_fd, char* line);
 
 int loggerWebStart(const char* log_path, unsigned short port) {
     if (!log_path || !*log_path || port == 0) {
@@ -154,14 +155,14 @@ static void sendIndex(int client_fd, const char* log_path) {
             "<meta http-equiv=\"refresh\" content=\"30\">"
             "<title>House Notification Log</title>"
             "<style>"
-            "body{font-family:system-ui,-apple-system,Segoe UI,sans-serif;margin:24px;color:#18202a;background:#f7f8fa}"
-            "h1{font-size:22px;margin:0 0 16px}"
-            "table{border-collapse:collapse;width:100%;background:white;border:1px solid #d9dee6}"
-            "th,td{border-bottom:1px solid #e5e8ee;padding:8px;text-align:left;font-size:14px;vertical-align:top}"
-            "th{background:#eef2f6;font-weight:600}"
+            "body{font-family:system-ui,-apple-system,Segoe UI,sans-serif;margin:24px;color:#e5e7eb;background:#0f172a}"
+            "h1{font-size:22px;margin:0 0 16px;color:#f8fafc}"
+            "table{border-collapse:collapse;width:100%;background:#111827;border:1px solid #334155}"
+            "th,td{border-bottom:1px solid #1f2937;padding:8px;text-align:left;font-size:14px;vertical-align:top}"
+            "th{background:#1e293b;color:#f8fafc;font-weight:600}"
             "tr:last-child td{border-bottom:0}"
-            "a{color:#1459a8}"
-            ".empty{padding:16px;background:white;border:1px solid #d9dee6}"
+            "a{color:#93c5fd}"
+            ".empty{padding:16px;background:#111827;border:1px solid #334155}"
             "</style></head><body><h1>House Notification Log</h1>"
             "<p><a href=\"/raw\">Raw log</a></p>"
             "<table><thead><tr><th>Unix</th><th>Time</th><th>House</th><th>Outside</th>"
@@ -247,8 +248,10 @@ static void writeLogRows(int client_fd, const char* log_path) {
         return;
     }
 
+    char** rows = NULL;
+    size_t row_count = 0;
+    size_t row_capacity = 0;
     char line[LOGGER_WEB_MAX_LINE];
-    int row_count = 0;
 
     while (fgets(line, sizeof(line), file)) {
         char* newline = strpbrk(line, "\r\n");
@@ -256,32 +259,72 @@ static void writeLogRows(int client_fd, const char* log_path) {
             *newline = '\0';
         }
 
-        char* fields[8] = {0};
-        char* cursor = line;
-        for (int i = 0; i < 8; i++) {
-            fields[i] = cursor;
-            char* next = strchr(cursor, '|');
-            if (!next) {
-                break;
+        if (row_count == row_capacity) {
+            size_t next_capacity = row_capacity == 0 ? 32 : row_capacity * 2;
+            char** next_rows = realloc(rows, next_capacity * sizeof(*next_rows));
+            if (!next_rows) {
+                for (size_t i = 0; i < row_count; i++) {
+                    free(rows[i]);
+                }
+                free(rows);
+                fclose(file);
+                sendAll(client_fd, "<tr><td colspan=\"8\">Unable to load log rows.</td></tr>");
+                return;
             }
-            *next = '\0';
-            cursor = next + 1;
+            rows = next_rows;
+            row_capacity = next_capacity;
         }
 
-        sendAll(client_fd, "<tr>");
-        for (int i = 0; i < 8; i++) {
-            sendAll(client_fd, "<td>");
-            sendEscaped(client_fd, fields[i] ? fields[i] : "");
-            sendAll(client_fd, "</td>");
+        size_t line_len = strlen(line) + 1;
+        rows[row_count] = malloc(line_len);
+        if (!rows[row_count]) {
+            for (size_t i = 0; i < row_count; i++) {
+                free(rows[i]);
+            }
+            free(rows);
+            fclose(file);
+            sendAll(client_fd, "<tr><td colspan=\"8\">Unable to load log rows.</td></tr>");
+            return;
         }
-        sendAll(client_fd, "</tr>");
+        memcpy(rows[row_count], line, line_len);
         row_count++;
     }
 
+    fclose(file);
+
     if (row_count == 0) {
         sendAll(client_fd, "<tr><td colspan=\"8\">Log file is empty.</td></tr>");
+        free(rows);
+        return;
     }
 
-    fclose(file);
+    for (size_t i = row_count; i > 0; i--) {
+        writeLogRow(client_fd, rows[i - 1]);
+        free(rows[i - 1]);
+    }
+    free(rows);
 }
+
+static void writeLogRow(int client_fd, char* line) {
+    char* fields[8] = {0};
+    char* cursor = line;
+    for (int i = 0; i < 8; i++) {
+        fields[i] = cursor;
+        char* next = strchr(cursor, '|');
+        if (!next) {
+            break;
+        }
+        *next = '\0';
+        cursor = next + 1;
+    }
+
+    sendAll(client_fd, "<tr>");
+    for (int i = 0; i < 8; i++) {
+        sendAll(client_fd, "<td>");
+        sendEscaped(client_fd, fields[i] ? fields[i] : "");
+        sendAll(client_fd, "</td>");
+    }
+    sendAll(client_fd, "</tr>");
+}
+
 #endif
