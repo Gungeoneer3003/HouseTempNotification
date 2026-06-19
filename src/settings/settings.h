@@ -67,4 +67,9 @@
 #define LOG_TRIM_INTERVAL_SECONDS 86400
 #endif
 
+//Port for the logger web viewer. Set to 0 to disable.
+#ifndef LOGGER_WEB_PORT
+#define LOGGER_WEB_PORT 8080
+#endif
+
 #endif

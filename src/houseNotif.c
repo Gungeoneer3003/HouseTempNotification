@@ -6,6 +6,7 @@
 #include "houseApi.h"
 #include "instanceLock.h"
 #include "logger.h"
+#include "loggerWeb.h"
 #include "portable.h"
 #include "rec.h"
 #include "settings.h"
@@ -33,6 +34,9 @@ int main(void) {
 
     loggerTrim(config.log_path);
     loggerAppend(config.log_path, "startup", -1, -1, -1, getRecName(REC_NONE), "program started");
+#if LOGGER_WEB_PORT > 0
+    loggerWebStart(config.log_path, LOGGER_WEB_PORT);
+#endif
 
     Rec lastSent = REC_NONE;
     Rec pending = REC_NONE;
