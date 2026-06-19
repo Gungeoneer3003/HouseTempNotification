@@ -6,6 +6,7 @@ SSH = C:/Windows/Sysnative/OpenSSH/ssh.exe
 DIR = ~/Desktop/HouseTempNotification
 
 TARGET = houseNotif
+
 SRC_DIR = src
 CONFIG_DIR = $(SRC_DIR)/config
 HOUSE_DIR = $(SRC_DIR)/house
@@ -16,7 +17,9 @@ HTTP_DIR = $(SRC_DIR)/http
 PORTABLE_DIR = $(SRC_DIR)/portable
 RECOMMENDATION_DIR = $(SRC_DIR)/recommendation
 SETTINGS_DIR = $(SRC_DIR)/settings
+
 MODULE_DIRS = $(CONFIG_DIR) $(HOUSE_DIR) $(LOCK_DIR) $(JSON_DIR) $(LOGGER_DIR) $(HTTP_DIR) $(PORTABLE_DIR) $(RECOMMENDATION_DIR) $(SETTINGS_DIR)
+
 SRC = $(SRC_DIR)/houseNotif.c $(CONFIG_DIR)/config.c $(HOUSE_DIR)/houseApi.c $(HTTP_DIR)/httpClient.c $(LOCK_DIR)/instanceLock.c $(JSON_DIR)/jsonUtils.c $(LOGGER_DIR)/logger.c $(PORTABLE_DIR)/portable.c $(RECOMMENDATION_DIR)/rec.c
 TEST_TARGET = test_core
 TEST_SRC = tests/test_core.c $(JSON_DIR)/jsonUtils.c $(RECOMMENDATION_DIR)/rec.c
