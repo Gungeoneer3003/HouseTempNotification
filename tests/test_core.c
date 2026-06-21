@@ -1,6 +1,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 #include "jsonUtils.h"
 #include "rec.h"
@@ -16,8 +17,9 @@ static void testRecommendations(void) {
     assert(strcmp(getRecName(REC_CLOSE), "close") == 0);
     assert(strcmp(getRecName(REC_NONE), "none") == 0);
 
-    assert(determineRec(REC_OPEN, REC_NONE, 0, 100));
-    assert(!determineRec(REC_OPEN, REC_OPEN, 50, 100));
+    time_t now = time(NULL);
+    assert(shouldSend(REC_OPEN, REC_NONE, now) || !timeOk(REC_OPEN, now));
+    assert(!shouldSend(REC_OPEN, REC_OPEN, now));
 }
 
 static void testJsonParseInt(void) {

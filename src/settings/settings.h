@@ -37,14 +37,14 @@
 #define CLOSE_MARGIN 0
 #endif
 
-//How many consecutive identical polls are required before sending a recommendation 
-#ifndef REQUIRED_STABLE_POLLS
-#define REQUIRED_STABLE_POLLS 1
+//Hour of day (0-23) after which Open messages are allowed (e.g., 15 = 3pm)
+#ifndef ALLOW_OPEN_AFTER_HOUR
+#define ALLOW_OPEN_AFTER_HOUR 15
 #endif
 
-//Minimum number of seconds between sending the same recommendation again
-#ifndef SAME_ALERT_REMINDER_SECONDS
-#define SAME_ALERT_REMINDER_SECONDS 0
+//Hour of day (0-23) after which Close messages are allowed (e.g., 3 = 3am)
+#ifndef ALLOW_CLOSE_AFTER_HOUR
+#define ALLOW_CLOSE_AFTER_HOUR 3
 #endif
 
 //Path to the log file

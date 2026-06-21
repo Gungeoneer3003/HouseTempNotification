@@ -32,16 +32,13 @@ int main(void) {
         return EXIT_FAILURE;
     }
 
-    loggerTrim(config.log_path);
-    loggerAppend(config.log_path, "startup", -1, -1, -1, getRecName(REC_NONE), "program started");
+    logTrim(config.log_path);
+    logWrite(config.log_path, "startup");
 #if LOGGER_WEB_PORT > 0
     loggerWebStart(config.log_path, LOGGER_WEB_PORT);
 #endif
 
     Rec lastSent = REC_NONE;
-    Rec pending = REC_NONE;
-    int pendingCount = 0;
-    time_t lastSentTime = 0;
     time_t lastLogTrimTime = time(NULL);
 
     for (;;) {
@@ -49,13 +46,12 @@ int main(void) {
         time_t now = time(NULL);
 
         if (difftime(now, lastLogTrimTime) >= LOG_TRIM_INTERVAL_SECONDS) {
-            loggerTrim(config.log_path);
+            logTrim(config.log_path);
             lastLogTrimTime = now;
         }
 
         if (!houseReadSensor(&config, &reading)) {
-            fprintf(stderr, "Skipping this poll because the sensor read failed\n");
-            loggerAppend(config.log_path, "sensor_fail", -1, -1, -1, getRecName(REC_NONE), "sensor read failed");
+            logWrite(config.log_path, "sensor_fail");
             portableSleepSeconds(POLL_INTERVAL_SECONDS);
             continue;
         }
@@ -63,78 +59,55 @@ int main(void) {
         Rec rec = getRec(reading.house, reading.outside_air, reading.power);
 
         if (rec == REC_NONE) {
-            if (pending != REC_NONE) {
-                printf("Recommendation cleared before debounce completed In:%d Out:%d Power:%d\n",
-                       reading.house, reading.outside_air, reading.power);
-                loggerAppend(config.log_path, "cleared", reading.house, reading.outside_air,
-                             reading.power, getRecName(rec),
-                             "recommendation cleared before debounce completed");
-            } else {
-                printf("No action needed In:%d Out:%d Power:%d\n",
-                       reading.house, reading.outside_air, reading.power);
-                loggerAppend(config.log_path, "idle", reading.house, reading.outside_air,
-                             reading.power, getRecName(rec), "no action needed");
-            }
-
-            pending = REC_NONE;
-            pendingCount = 0;
-            lastSent = REC_NONE;
-            lastSentTime = 0;
+            logFormat(config.log_path, "idle|%d|%d|%d", 
+                      reading.house, reading.outside_air, reading.power);
             portableSleepSeconds(POLL_INTERVAL_SECONDS);
             continue;
         }
 
-        if (rec == pending) {
-            pendingCount++;
-        } else {
-            pending = rec;
-            pendingCount = 1;
-        }
-
-        printf("Pending recommendation: %s (%d/%d) In:%d Out:%d Power:%d\n",
-               getRecName(rec), pendingCount, REQUIRED_STABLE_POLLS,
-               reading.house, reading.outside_air, reading.power);
-        loggerAppend(config.log_path, "pending", reading.house, reading.outside_air,
-                     reading.power, getRecName(rec), "recommendation waiting for debounce");
-
-        int fanOffOk = 1;
-        if (pendingCount >= REQUIRED_STABLE_POLLS && rec == REC_CLOSE) {
-            fanOffOk = houseTurnOffFans(&config);
-            loggerAppend(config.log_path, fanOffOk ? "fan_off" : "fan_fail", -1, -1, -1,
-                         getRecName(REC_CLOSE), fanOffOk ? "fan shutoff request succeeded"
-                                                         : "fan shutoff request failed after retries");
-        }
-
-        if (pendingCount >= REQUIRED_STABLE_POLLS &&
-            determineRec(rec, lastSent, lastSentTime, now)) {
-            char message[160];
+        if (shouldSend(rec, lastSent, now)) {
+            char msg[256];
+            int fanOffOk = 1;
+            
+            if (rec == REC_CLOSE) {
+                fanOffOk = houseTurnOffFans(&config);
+            }
 
             if (rec == REC_OPEN) {
-                snprintf(message, sizeof(message), "Open the windows (Out:%d In:%d)",
-                         reading.outside_air, reading.house);
+                snprintf(msg, sizeof(msg), "Open the windows");
             } else if (fanOffOk) {
-                snprintf(message, sizeof(message), "Close the windows (Out:%d In:%d)",
-                         reading.outside_air, reading.house);
+                snprintf(msg, sizeof(msg), "Close the windows");
             } else {
-                snprintf(message, sizeof(message),
-                         "Close the windows (fan shutoff failed, Out:%d In:%d)",
-                         reading.outside_air, reading.house);
+                snprintf(msg, sizeof(msg), "Close the windows (fan failed)");
             }
 
-            if (pushoverSendMessage(&config, message)) {
+            if (pushoverSendMessage(&config, msg)) {
                 lastSent = rec;
-                lastSentTime = time(NULL);
-                printf("Sent notification: %s\n", message);
-                loggerAppend(config.log_path, "notify_sent", reading.house, reading.outside_air,
-                             reading.power, getRecName(rec), message);
+                logFormat(config.log_path, "notify_sent|%s|%d|%d|%d", 
+                          msg, reading.house, reading.outside_air, reading.power);
+                
+                // Sleep until next time window
+                long sleep_sec = secUntilWindow(rec, now);
+                if (sleep_sec > 0) {
+                    portableSleepSeconds((unsigned int)sleep_sec);
+                }
+                continue;
             } else {
-                loggerAppend(config.log_path, "notify_failed", reading.house, reading.outside_air,
-                             reading.power, getRecName(rec), message);
+                logFormat(config.log_path, "notify_failed|%d|%d|%d", 
+                          reading.house, reading.outside_air, reading.power);
             }
-        } else if (pendingCount >= REQUIRED_STABLE_POLLS) {
-            printf("Already sent %s; suppressing repeat notification\n", getRecName(rec));
-            loggerAppend(config.log_path, "suppressed", reading.house, reading.outside_air,
-                         reading.power, getRecName(rec), "repeat notification suppressed");
+        } else {
+            if (!timeOk(rec, now)) {
+                long wait_sec = secUntilWindow(rec, now);
+                unsigned int sleep_time = (unsigned int)wait_sec < POLL_INTERVAL_SECONDS ?
+                                         (unsigned int)wait_sec : POLL_INTERVAL_SECONDS;
+                logFormat(config.log_path, "waiting_window|%s|%d|%d|%d", 
+                          getRecName(rec), reading.house, reading.outside_air, reading.power);
+                portableSleepSeconds(sleep_time);
+                continue;
+            }
+            logFormat(config.log_path, "suppressed|%s|%d|%d|%d", 
+                      getRecName(rec), reading.house, reading.outside_air, reading.power);
         }
 
         portableSleepSeconds(POLL_INTERVAL_SECONDS);

@@ -11,9 +11,8 @@ typedef enum {
 
 Rec getRec(int house, int outside_air, int power);
 const char* getRecName(Rec rec);
-int determineRec(Rec rec,
-                             Rec last_sent,
-                             time_t last_sent_time,
-                             time_t now);
+int timeOk(Rec rec, time_t now);
+long secUntilWindow(Rec rec, time_t now);
+int shouldSend(Rec rec, Rec last_sent, time_t now);
 
 #endif

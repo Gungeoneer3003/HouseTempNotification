@@ -18,17 +18,26 @@
 #define LOG_RETENTION_DAYS 30
 #endif
 
-static int loggerLocaltime(const time_t* value, struct tm* out);
-static void writeField(FILE* file, const char* value);
+static int logLocaltime(const time_t* value, struct tm* out);
 static void replaceFile(const char* temp_path, const char* target_path);
 
-int loggerAppend(const char* log_path,
-                 const char* event,
-                 int house,
-                 int outside_air,
-                 int power,
-                 const char* recommendation,
-                 const char* detail) {
+static int logLocaltime(const time_t* value, struct tm* out) {
+    if (!value || !out) {
+        return 0;
+    }
+
+#ifdef _WIN32
+    return localtime_s(out, value) == 0;
+#else
+    return localtime_r(value, out) != NULL;
+#endif
+}
+
+int logWrite(const char* log_path, const char* message) {
+    if (!log_path || !message) {
+        return 0;
+    }
+
     FILE* file = fopen(log_path, "a");
     if (!file) {
         fprintf(stderr, "Failed to open log file %s\n", log_path);
@@ -39,25 +48,40 @@ int loggerAppend(const char* log_path,
     struct tm local;
     char timestamp[32];
 
-    if (loggerLocaltime(&now, &local)) {
+    if (logLocaltime(&now, &local)) {
         strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", &local);
     } else {
         snprintf(timestamp, sizeof(timestamp), "unknown");
     }
 
-    fprintf(file, "%lld|%s|%d|%d|%d|%s|",
-            (long long)now, timestamp, house, outside_air, power,
-            recommendation ? recommendation : "");
-    writeField(file, event ? event : "");
-    fputc('|', file);
-    writeField(file, detail ? detail : "");
-    fputc('\n', file);
-
+    fprintf(file, "%lld|%s|%s\n", (long long)now, timestamp, message);
     fclose(file);
     return 1;
 }
 
-void loggerTrim(const char* log_path) {
+int logFormat(const char* log_path, const char* format, ...) {
+    if (!log_path || !format) {
+        return 0;
+    }
+
+    char message[512];
+    va_list args;
+    va_start(args, format);
+    int written = vsnprintf(message, sizeof(message), format, args);
+    va_end(args);
+
+    if (written < 0 || (size_t)written >= sizeof(message)) {
+        return 0;
+    }
+
+    return logWrite(log_path, message);
+}
+
+void logTrim(const char* log_path) {
+    if (!log_path) {
+        return;
+    }
+
     FILE* input = fopen(log_path, "r");
     if (!input) {
         return;
@@ -91,28 +115,6 @@ void loggerTrim(const char* log_path) {
     fclose(input);
     fclose(output);
     replaceFile(temp_path, log_path);
-}
-
-static int loggerLocaltime(const time_t* value, struct tm* out) {
-    if (!value || !out) {
-        return 0;
-    }
-
-#ifdef _WIN32
-    return localtime_s(out, value) == 0;
-#else
-    return localtime_r(value, out) != NULL;
-#endif
-}
-
-static void writeField(FILE* file, const char* value) {
-    for (const char* p = value; *p; p++) {
-        if (*p == '\n' || *p == '\r' || *p == '|') {
-            fputc(' ', file);
-        } else {
-            fputc(*p, file);
-        }
-    }
 }
 
 static void replaceFile(const char* temp_path, const char* target_path) {
