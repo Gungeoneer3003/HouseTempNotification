@@ -48,6 +48,8 @@ static void sendAll(int fd, const char* data);
 static void sendEscaped(int fd, const char* value);
 static void writeLogRows(int client_fd, const char* log_path);
 static void writeLogRow(int client_fd, char* line);
+static void sendCss(int client_fd);
+static void sendFile(int client_fd, const char* path);
 
 //Start the logger web server on the specified port
 int loggerWebStart(const char* log_path, unsigned short port) {
@@ -154,6 +156,9 @@ static void handleClient(int client_fd, const char* log_path) {
         sendIndex(client_fd, log_path);
     } else if (strncmp(request, "GET /raw ", 9) == 0 || strncmp(request, "GET /raw?", 9) == 0) {
         sendRawLog(client_fd, log_path);
+    } else if (strncmp(request, "GET /style.css ", 15) == 0 ||
+           strncmp(request, "GET /style.css?", 15) == 0) {
+        sendCss(client_fd);
     } else {
         sendNotFound(client_fd);
     }
@@ -164,28 +169,17 @@ static void sendIndex(int client_fd, const char* log_path) {
             "HTTP/1.1 200 OK\r\n"
             "Content-Type: text/html; charset=utf-8\r\n"
             "Cache-Control: no-store\r\n"
-            "Connection: close\r\n\r\n"
-            "<!doctype html><html><head><meta charset=\"utf-8\">"
-            "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
-            "<meta http-equiv=\"refresh\" content=\"30\">"
-            "<title>House Notification Log</title>"
-            "<style>"
-            "body{font-family:system-ui,-apple-system,Segoe UI,sans-serif;margin:24px;color:#e5e7eb;background:#0f172a}"
-            "h1{font-size:22px;margin:0 0 16px;color:#f8fafc}"
-            "table{border-collapse:collapse;width:100%;background:#111827;border:1px solid #334155}"
-            "th,td{border-bottom:1px solid #1f2937;padding:8px;text-align:left;font-size:14px;vertical-align:top}"
-            "th{background:#1e293b;color:#f8fafc;font-weight:600}"
-            "tr:last-child td{border-bottom:0}"
-            "a{color:#93c5fd}"
-            ".empty{padding:16px;background:#111827;border:1px solid #334155}"
-            "</style></head><body><h1>House Notification Log</h1>"
-            "<p><a href=\"/raw\">Raw log</a></p>"
-            "<table><thead><tr><th>Unix</th><th>Time</th><th>House</th><th>Outside</th>"
-            "<th>Power</th><th>Recommendation</th><th>Event</th><th>Detail</th></tr></thead><tbody>");
+            "Connection: close\r\n\r\n");
+
+    sendFile(client_fd, "loggerWeb.html");
 
     writeLogRows(client_fd, log_path);
 
-    sendAll(client_fd, "</tbody></table></body></html>");
+    sendAll(client_fd,
+            "</tbody>"
+            "</table>"
+            "</body>"
+            "</html>");
 }
 
 static void sendRawLog(int client_fd, const char* log_path) {
@@ -340,6 +334,41 @@ static void writeLogRow(int client_fd, char* line) {
         sendAll(client_fd, "</td>");
     }
     sendAll(client_fd, "</tr>");
+}
+
+static void sendCss(int client_fd) {
+    sendAll(client_fd,
+            "HTTP/1.1 200 OK\r\n"
+            "Content-Type: text/css; charset=utf-8\r\n"
+            "Cache-Control: no-store\r\n"
+            "Connection: close\r\n\r\n");
+
+    FILE* file = fopen("loggerWeb.css", "r");
+    if (!file) {
+        return;
+    }
+
+    char buffer[2048];
+    while (fgets(buffer, sizeof(buffer), file)) {
+        sendAll(client_fd, buffer);
+    }
+
+    fclose(file);
+}
+
+static void sendFile(int client_fd, const char* path) {
+    FILE* file = fopen(path, "r");
+    if (!file) {
+        sendAll(client_fd, "<p>Missing page template.</p>");
+        return;
+    }
+
+    char buffer[2048];
+    while (fgets(buffer, sizeof(buffer), file)) {
+        sendAll(client_fd, buffer);
+    }
+
+    fclose(file);
 }
 
 #endif

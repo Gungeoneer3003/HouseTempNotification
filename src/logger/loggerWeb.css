@@ -1,0 +1,47 @@
+body {
+    font-family: system-ui, -apple-system, Segoe UI, sans-serif;
+    margin: 24px;
+    color: #e5e7eb;
+    background: #0f172a;
+}
+
+h1 {
+    font-size: 22px;
+    margin: 0 0 16px;
+    color: #f8fafc;
+}
+
+table {
+    border-collapse: collapse;
+    width: 100%;
+    background: #111827;
+    border: 1px solid #334155;
+}
+
+th, td {
+    border-bottom: 1px solid #1f2937;
+    padding: 8px;
+    text-align: left;
+    font-size: 14px;
+    vertical-align: top;
+}
+
+th {
+    background: #1e293b;
+    color: #f8fafc;
+    font-weight: 600;
+}
+
+tr:last-child td {
+    border-bottom: 0;
+}
+
+a {
+    color: #93c5fd;
+}
+
+.empty {
+    padding: 16px;
+    background: #111827;
+    border: 1px solid #334155;
+}

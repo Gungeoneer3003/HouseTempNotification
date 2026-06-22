@@ -62,6 +62,11 @@
 #define LOG_RETENTION_DAYS 30
 #endif
 
+//Size of the buffer for formatted log messages
+#ifndef MESSAGE_SIZE
+#define MESSAGE_SIZE 512
+#endif
+
 //How often to trim old logs (in seconds)
 #ifndef LOG_TRIM_INTERVAL_SECONDS
 #define LOG_TRIM_INTERVAL_SECONDS 86400
