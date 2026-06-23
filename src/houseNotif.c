@@ -39,7 +39,7 @@ int main(void) {
     logTrim(config.log_path);
 
     //Write a startup entry
-    logWrite(config.log_path, "-|-|-|-|startup|");
+    lprint(config.log_path, "-|-|-|-|startup|");
 
     //Start the logger web server if configured
 #if LOGGER_WEB_PORT > 0
@@ -58,7 +58,6 @@ int main(void) {
                    sizeof(logger_web_columns) / sizeof(logger_web_columns[0]));
 #endif
 
-    Rec lastSent = REC_NONE;
     time_t lastLogTrimTime = time(NULL);
 
     //Main loop
@@ -74,7 +73,7 @@ int main(void) {
 
         //Read the sensor values
         if (!houseReadSensor(&config, &reading)) {
-            logWrite(config.log_path, "-|-|-|-|sensor fail|");
+            lprint(config.log_path, "-|-|-|-|sensor fail|");
             portableSleepSeconds(POLL_INTERVAL_SECONDS);
             continue;
         }
@@ -82,18 +81,23 @@ int main(void) {
         //Determine the recommendation based on the sensor readings
         Rec rec = getRec(reading.house, reading.outside_air, reading.power);
 
-        //Log the reading and recommendation
-        if (rec == REC_NONE) {
-            logFormat(config.log_path, "%d|%d|%d|%s|idle|",
-                      reading.house, reading.outside_air, reading.power, getRecName(rec));
-            portableSleepSeconds(POLL_INTERVAL_SECONDS);
-            continue;
-        }
+        //Use the recommendation and see if a notification is in order
+        if (rec != REC_NONE) {
+            //Check if the recommendation is at the right time
+            //This shouldn't happen since it'll sleep till the correct window, 
+            //but still check for safety
+            if(!withinWindow(rec, now)) {
+                lprintf(config.log_path, "%d|%d|%d|%s|wrong time|",
+                          reading.house, reading.outside_air, 
+                          reading.power, getRecName(rec));
 
-        //Check if we should send a notification for this recommendation
-        if (shouldSend(rec, lastSent, now)) {
+                // Sleep until next time window
+                portableSleepSeconds(POLL_INTERVAL_SECONDS);
+                continue;
+            }
+
             char msg[256];
-            int fanOffOk = 1;
+            int fanOffOk;
 
             //If closing the windows, turn off the fans
             if (rec == REC_CLOSE) {
@@ -102,47 +106,41 @@ int main(void) {
 
             //Send the notification
             if (rec == REC_OPEN) {
-                snprintf(msg, sizeof(msg), "Open the windows");
+                snprintf(msg, sizeof(msg), "Open the windows (Out:%2d In:%2d)", reading.outside_air, reading.house);
             } else if (fanOffOk) {
-                snprintf(msg, sizeof(msg), "Close the windows");
+                snprintf(msg, sizeof(msg), "Close the windows (Out:%2d In:%2d)", reading.outside_air, reading.house);
             } else {
                 snprintf(msg, sizeof(msg), "Close the windows (fan failed)");
             }
 
+            int msgResult = pushoverSendMessage(&config, msg);
+
             //Log the notification attempt and result
-            if (pushoverSendMessage(&config, msg)) {
-                lastSent = rec;
-                logFormat(config.log_path, "%d|%d|%d|%s|notify sent|%s",
-                          reading.house, reading.outside_air, reading.power,
-                          getRecName(rec), msg);
+            if (msgResult) {
+                lprintf(config.log_path, "%d|%d|%d|%s|notify sent|%s",
+                          reading.house, reading.outside_air, 
+                          reading.power, getRecName(rec), msg);
 
                 // Sleep until next time window
                 long sleep_sec = secUntilWindow(rec, now);
+                lprintf(config.log_path, "-|-|-|-|Sleeping|sleep(%u)", (unsigned int)sleep_sec);
                 if (sleep_sec > 0) {
                     portableSleepSeconds((unsigned int)sleep_sec);
                 }
+                
                 continue;
-            } else {
-                logFormat(config.log_path, "%d|%d|%d|%s|notify failed|",
-                          reading.house, reading.outside_air, reading.power, getRecName(rec));
+            } 
+            else {
+                lprintf(config.log_path, "%d|%d|%d|%s|notify failed|",
+                          reading.house, reading.outside_air, 
+                          reading.power, getRecName(rec));
             }
-        } else {
-            //Holy smokes this is so dense and so wrong
-            if (!timeOk(rec, now)) {
-                long wait_sec = secUntilWindow(rec, now);
-                unsigned int sleep_time = (unsigned int)wait_sec < POLL_INTERVAL_SECONDS ?
-                                         (unsigned int)wait_sec : POLL_INTERVAL_SECONDS;
-                logFormat(config.log_path, "%d|%d|%d|%s|waiting window|",
-                          reading.house, reading.outside_air, reading.power,
-                          getRecName(rec));
-                portableSleepSeconds(sleep_time);
-                continue;
-            }
-            logFormat(config.log_path, "%d|%d|%d|%s|suppressed|",
-                      reading.house, reading.outside_air, reading.power,
-                      getRecName(rec));
         }
 
+        //Log the fact that there wasn't anything to do
+        lprintf(config.log_path, "%d|%d|%d|%s|idle|",
+                      reading.house, reading.outside_air, 
+                      reading.power, getRecName(rec));
         portableSleepSeconds(POLL_INTERVAL_SECONDS);
     }
 

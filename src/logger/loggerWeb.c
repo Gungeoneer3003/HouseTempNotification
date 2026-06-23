@@ -16,11 +16,14 @@ int loggerWebStart(const char* log_path,
                    const char* title,
                    const char* const* column_headers,
                    size_t column_header_count) {
+    
+    //Signify that the parameters are unused to avoid compiler warnings
     (void)log_path;
     (void)port;
     (void)title;
     (void)column_headers;
     (void)column_header_count;
+
     fprintf(stderr, "Logger web viewer is not supported on Windows\n");
     return 0;
 }

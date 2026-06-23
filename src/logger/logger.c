@@ -3,7 +3,6 @@
 #endif
 
 #include "logger.h"
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,13 +21,12 @@
 #define MESSAGE_SIZE 512
 #endif
 
-//Function prototypes
+//Static function prototypes
 static int logLocaltime(const time_t* value, struct tm* out);
 static void replaceFile(const char* temp_path, const char* target_path);
 
-
 //Write a simple message with timestamp to the log file
-int logWrite(const char* log_path, const char* message) {
+int lprint(const char* log_path, const char* message) {
     if (!log_path || !message) {
         return 0;
     }
@@ -59,7 +57,7 @@ int logWrite(const char* log_path, const char* message) {
 }
 
 //Log a formatted message (like sprintf) with timestamp to the log file
-int logFormat(const char* log_path, const char* format, ...) {
+int lprintf(const char* log_path, const char* format, ...) {
     if (!log_path || !format) {
         return 0;
     }
@@ -77,7 +75,7 @@ int logFormat(const char* log_path, const char* format, ...) {
         return 0;
     }
 
-    return logWrite(log_path, message);
+    return lprint(log_path, message);
 }
 
 //Remove log entries older than LOG_RETENTION_DAYS

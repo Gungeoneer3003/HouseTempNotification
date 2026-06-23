@@ -27,14 +27,9 @@
 #define MAX_RESPONSE_BYTES ((size_t)64 * 1024)
 #endif
 
-//Margin for opening the windows (in degrees Fahrenheit)
-#ifndef OPEN_MARGIN
-#define OPEN_MARGIN 0
-#endif
-
-//Margin for closing the windows (in degrees Fahrenheit)
-#ifndef CLOSE_MARGIN
-#define CLOSE_MARGIN 0
+//Margin for difference in outside and inside (in degrees Fahrenheit)
+#ifndef MARGIN
+#define MARGIN 0
 #endif
 
 //Hour of day (0-23) after which Open messages are allowed (e.g., 15 = 3pm)

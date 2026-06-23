@@ -8,18 +8,18 @@
 #include "settings.h"
 
 static void testRecommendations(void) {
-    assert(getRec(75, 75 - OPEN_MARGIN, 0) == REC_OPEN);
-    assert(getRec(75, 75 - OPEN_MARGIN + 1, 0) == REC_NONE);
-    assert(getRec(70, 70 + CLOSE_MARGIN, 1) == REC_CLOSE);
-    assert(getRec(70, 70 + CLOSE_MARGIN - 1, 1) == REC_NONE);
+    assert(getRec(75, 75 - MARGIN, 0) == REC_OPEN);
+    assert(getRec(75, 75 - MARGIN + 1, 0) == REC_NONE);
+    assert(getRec(70, 70 + MARGIN, 1) == REC_CLOSE);
+    assert(getRec(70, 70 + MARGIN - 1, 1) == REC_NONE);
 
     assert(strcmp(getRecName(REC_OPEN), "open") == 0);
     assert(strcmp(getRecName(REC_CLOSE), "close") == 0);
     assert(strcmp(getRecName(REC_NONE), "none") == 0);
 
     time_t now = time(NULL);
-    assert(shouldSend(REC_OPEN, REC_NONE, now) || !timeOk(REC_OPEN, now));
-    assert(!shouldSend(REC_OPEN, REC_OPEN, now));
+    assert(withinWindow(REC_OPEN, now));
+    assert(!withinWindow(REC_CLOSE, now));
 }
 
 static void testJsonParseInt(void) {

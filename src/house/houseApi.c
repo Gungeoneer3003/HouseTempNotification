@@ -44,7 +44,6 @@ int houseReadSensor(const AppConfig* config, SensorReading* reading) {
                     attempt + 1, SENSOR_RETRY_COUNT);
         }
 
-        //
         httpResponseFree(&response);
         portableSleepSeconds(1);
     }
@@ -54,6 +53,8 @@ int houseReadSensor(const AppConfig* config, SensorReading* reading) {
     return 0;
 }
 
+//Try to turn off the fans
+//This should happen at the same time as closing the windows
 int houseTurnOffFans(const AppConfig* config) {
     if (!config) {
         return 0;
