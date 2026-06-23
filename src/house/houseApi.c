@@ -19,15 +19,18 @@ int houseReadSensor(const AppConfig* config, SensorReading* reading) {
         if (httpGet(config->cgi_url, "Sensor read", &response) && response.body) {
             int house = 0;
             int outside_air = 0;
+            int attic = 0;
             int power = 0;
 
             //Parse the JSON response to extract the sensor values
             if (jsonParseInt(response.body, "inside", &house) &&
                 jsonParseInt(response.body, "oa", &outside_air) &&
-                jsonParseInt(response.body, "power", &power)) {
+                jsonParseInt(response.body, "power", &power) &&
+                jsonParseInt(response.body, "attic", &attic)) {
                 
                 reading->house = house;
                 reading->outside_air = outside_air;
+                reading->attic = attic;
                 reading->power = power;
 
                 //Clean up
@@ -36,7 +39,7 @@ int houseReadSensor(const AppConfig* config, SensorReading* reading) {
             }
 
             //Check if anything was missing
-            fprintf(stderr, "Sensor response was missing inside/oa/power fields: %s\n",
+            fprintf(stderr, "Sensor response was missing inside/oa/attic/power fields: %s\n",
                     response.body);
         } else {
             //Log the failure

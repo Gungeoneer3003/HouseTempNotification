@@ -6,6 +6,7 @@
 typedef struct {
     int house;
     int outside_air;
+    int attic;
     int power;
 } SensorReading;
 

@@ -3,6 +3,8 @@
 #endif
 
 #include "logger.h"
+#include <pthread.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,11 +24,105 @@
 #endif
 
 //Static function prototypes
+static int lprintUnlocked(const char* log_path, const char* message);
 static int logLocaltime(const time_t* value, struct tm* out);
 static void replaceFile(const char* temp_path, const char* target_path);
 
+static pthread_mutex_t log_mutex = PTHREAD_MUTEX_INITIALIZER;
+
 //Write a simple message with timestamp to the log file
 int lprint(const char* log_path, const char* message) {
+    int result;
+
+    pthread_mutex_lock(&log_mutex);
+    result = lprintUnlocked(log_path, message);
+    pthread_mutex_unlock(&log_mutex);
+
+    return result;
+}
+
+//Log a formatted message (like sprintf) with timestamp to the log file
+int lprintf(const char* log_path, const char* format, ...) {
+    if (!log_path || !format) {
+        return 0;
+    }
+
+    //Format the message using a fixed-size buffer
+    char message[MESSAGE_SIZE];
+    va_list args;
+    va_start(args, format);
+    
+    int written = vsnprintf(message, sizeof(message), format, args);
+    
+    va_end(args);
+
+    if (written < 0 || (size_t)written >= sizeof(message)) {
+        return 0;
+    }
+
+    pthread_mutex_lock(&log_mutex);
+    int result = lprintUnlocked(log_path, message);
+    pthread_mutex_unlock(&log_mutex);
+
+    return result;
+}
+
+//Remove log entries older than LOG_RETENTION_DAYS
+void logTrim(const char* log_path) {
+    pthread_mutex_lock(&log_mutex);
+
+    if (!log_path) {
+        pthread_mutex_unlock(&log_mutex);
+        return;
+    }
+
+    //Open the existing log file for reading
+    FILE* input = fopen(log_path, "r");
+    if (!input) {
+        pthread_mutex_unlock(&log_mutex);
+        return;
+    }
+
+    //Create a temporary file for writing the trimmed logs
+    char temp_path[512]; //512 is an arbitrary size for the temp file path
+    int n = snprintf(temp_path, sizeof(temp_path), "%s.tmp", log_path);
+    if (n < 0 || (size_t)n >= sizeof(temp_path)) {
+        fclose(input);
+        pthread_mutex_unlock(&log_mutex);
+        return;
+    }
+
+    //Write entries newer than the cutoff time to the temp file
+    FILE* output = fopen(temp_path, "w");
+    if (!output) {
+        fclose(input);
+        pthread_mutex_unlock(&log_mutex);
+        return;
+    }
+
+    //Calculate the cutoff time for log retention
+    time_t cutoff = time(NULL) - (time_t)LOG_RETENTION_DAYS * 24 * 60 * 60;
+    char line[MESSAGE_SIZE + 64]; //64 bytes for timestamp and separators
+
+    //Read each line from the input log file
+    while (fgets(line, sizeof(line), input)) {
+        char* end = NULL;
+        long long logged_at = strtoll(line, &end, 10);
+
+        if (end == line || logged_at >= (long long)cutoff) {
+            fputs(line, output);
+        }
+    }
+
+    //Clean up
+    fclose(input);
+    fclose(output);
+    replaceFile(temp_path, log_path);
+
+    pthread_mutex_unlock(&log_mutex);
+}
+
+static int lprintUnlocked(const char* log_path, const char* message) {
     if (!log_path || !message) {
         return 0;
     }
@@ -54,75 +150,6 @@ int lprint(const char* log_path, const char* message) {
     fprintf(file, "%lld|%s|%s\n", (long long)now, timestamp, message);
     fclose(file);
     return 1;
-}
-
-//Log a formatted message (like sprintf) with timestamp to the log file
-int lprintf(const char* log_path, const char* format, ...) {
-    if (!log_path || !format) {
-        return 0;
-    }
-
-    //Format the message using a fixed-size buffer
-    char message[MESSAGE_SIZE];
-    va_list args;
-    va_start(args, format);
-    
-    int written = vsnprintf(message, sizeof(message), format, args);
-    
-    va_end(args);
-
-    if (written < 0 || (size_t)written >= sizeof(message)) {
-        return 0;
-    }
-
-    return lprint(log_path, message);
-}
-
-//Remove log entries older than LOG_RETENTION_DAYS
-void logTrim(const char* log_path) {
-    if (!log_path) {
-        return;
-    }
-
-    //Open the existing log file for reading
-    FILE* input = fopen(log_path, "r");
-    if (!input) {
-        return;
-    }
-
-    //Create a temporary file for writing the trimmed logs
-    char temp_path[512]; //512 is an arbitrary size for the temp file path
-    int n = snprintf(temp_path, sizeof(temp_path), "%s.tmp", log_path);
-    if (n < 0 || (size_t)n >= sizeof(temp_path)) {
-        fclose(input);
-        return;
-    }
-
-    //Write entries newer than the cutoff time to the temp file
-    FILE* output = fopen(temp_path, "w");
-    if (!output) {
-        fclose(input);
-        return;
-    }
-
-    //Calculate the cutoff time for log retention
-    time_t cutoff = time(NULL) - (time_t)LOG_RETENTION_DAYS * 24 * 60 * 60;
-    char line[MESSAGE_SIZE + 64]; //64 bytes for timestamp and separators
-
-    //Read each line from the input log file
-    while (fgets(line, sizeof(line), input)) {
-        char* end = NULL;
-        long long logged_at = strtoll(line, &end, 10);
-
-        if (end == line || logged_at >= (long long)cutoff) {
-            fputs(line, output);
-        }
-    }
-
-    //Clean up
-    fclose(input);
-    fclose(output);
-    replaceFile(temp_path, log_path);
 }
 
 //Replace the target file with the temp file
