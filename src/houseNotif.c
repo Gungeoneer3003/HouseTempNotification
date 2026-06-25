@@ -75,17 +75,25 @@ int main(void)
         "House",
         "Attic",
         "Outside"};
+    static const char *const logger_web_today_columns[] = {
+        "House",
+        "Outside",
+        "Attic"};
     if (loggerWebStart(config.log_path,
                        LOGGER_WEB_PORT,
                        "House Notification Log",
                        logger_web_columns,
                        sizeof(logger_web_columns) / sizeof(logger_web_columns[0]))) {
-        loggerWebInsertGraph("House Over Time", "Time", "House");
         loggerWebInsertGraphSeries("Temperature Overlay",
                                    "Time",
                                    logger_web_temperature_graph_columns,
                                    sizeof(logger_web_temperature_graph_columns) /
                                        sizeof(logger_web_temperature_graph_columns[0]));
+        loggerWebShowStats(1);
+        loggerWebShowVerts("Temperature Overlay", "Event", "notify sent", "#8b1a1a");
+        loggerWebShowToday(logger_web_today_columns,
+                           sizeof(logger_web_today_columns) /
+                               sizeof(logger_web_today_columns[0]));
     }
 #endif
 

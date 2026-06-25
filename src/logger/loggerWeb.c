@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 //Check if this is the right platform
 #ifdef _WIN32
@@ -52,6 +53,34 @@ int loggerWebInsertGraphSeries(const char* title,
     fprintf(stderr, "Logger web graphs are not supported on Windows\n");
     return 0;
 }
+int loggerWebShowStats(int enabled) {
+    (void)enabled;
+
+    fprintf(stderr, "Logger web graphs are not supported on Windows\n");
+    return 0;
+}
+
+int loggerWebShowVerts(const char* graph_title,
+                       const char* column,
+                       const char* value,
+                       const char* color) {
+    (void)graph_title;
+    (void)column;
+    (void)value;
+    (void)color;
+
+    fprintf(stderr, "Logger web graphs are not supported on Windows\n");
+    return 0;
+}
+
+int loggerWebShowToday(const char* const* columns,
+                       size_t column_count) {
+    (void)columns;
+    (void)column_count;
+
+    fprintf(stderr, "Logger web graphs are not supported on Windows\n");
+    return 0;
+}
 #else
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -74,11 +103,25 @@ typedef struct {
 } LoggerWebGraphSeries;
 
 typedef struct {
+    char* column;
+    char* value;
+    char* color;
+    size_t column_index;
+} LoggerWebVert;
+
+typedef struct {
+    char* name;
+    size_t index;
+} LoggerWebTodayColumn;
+typedef struct {
     char* title;
     char* x_column;
     size_t x_index;
     LoggerWebGraphSeries* series;
     size_t series_count;
+    LoggerWebVert* verts;
+    size_t vert_count;
+    size_t vert_capacity;
 } LoggerWebGraph;
 
 typedef struct {
@@ -91,6 +134,9 @@ typedef struct {
     LoggerWebGraph* graphs;
     size_t graph_count;
     size_t graph_capacity;
+    int show_stats;
+    LoggerWebTodayColumn* today_columns;
+    size_t today_column_count;
 } LoggerWebServer;
 
 static LoggerWebServer* active_server = NULL;
@@ -103,6 +149,13 @@ static int initServerDisplay(LoggerWebServer* server,
                              size_t column_header_count);
 static void freeServerDisplay(LoggerWebServer* server);
 static void freeGraph(LoggerWebGraph* graph);
+static void freeTodayColumns(LoggerWebServer* server);
+static LoggerWebGraph* findGraphByTitle(LoggerWebServer* server, const char* title);
+static int appendGraphVert(LoggerWebGraph* graph,
+                           const char* column,
+                           size_t column_index,
+                           const char* value,
+                           const char* color);
 static char* copyString(const char* value);
 static void* serverLoop(void* arg);
 static void handleClient(int client_fd, const LoggerWebServer* server);
@@ -130,7 +183,17 @@ static void writeGraphJson(int client_fd,
 static void writeGraphPointsJson(int client_fd,
                                  const LoggerWebServer* server,
                                  const LoggerWebGraph* graph);
+static void writeGraphStatsJson(int client_fd,
+                                const LoggerWebServer* server,
+                                const LoggerWebGraph* graph);
+static void writeGraphEventsJson(int client_fd,
+                                 const LoggerWebServer* server,
+                                 const LoggerWebGraph* graph);
+static void writeTodayJson(int client_fd, const LoggerWebServer* server);
 static int parseDouble(const char* value, double* out);
+static int parseUnixTime(const char* value, time_t* out);
+static int logLocaltime(const time_t* value, struct tm* out);
+static void formatUnixLabel(time_t value, char* buffer, size_t buffer_size);
 static int loggerWebHasGraphs(const LoggerWebServer* server);
 static int resolveColumnIndex(const LoggerWebServer* server,
                               const char* column,
@@ -310,6 +373,100 @@ int loggerWebInsertGraphSeries(const char* title,
     return 1;
 }
 
+int loggerWebShowStats(int enabled) {
+    pthread_mutex_lock(&active_server_mutex);
+    LoggerWebServer* server = active_server;
+    if (!server) {
+        pthread_mutex_unlock(&active_server_mutex);
+        return 0;
+    }
+
+    server->show_stats = enabled != 0;
+    pthread_mutex_unlock(&active_server_mutex);
+    return 1;
+}
+
+int loggerWebShowVerts(const char* graph_title,
+                       const char* column,
+                       const char* value,
+                       const char* color) {
+    if (!graph_title || !*graph_title || !column || !*column || !value || !*value) {
+        return 0;
+    }
+
+    pthread_mutex_lock(&active_server_mutex);
+    LoggerWebServer* server = active_server;
+    if (!server) {
+        pthread_mutex_unlock(&active_server_mutex);
+        return 0;
+    }
+
+    LoggerWebGraph* graph = findGraphByTitle(server, graph_title);
+    size_t column_index = 0;
+    if (!graph || !resolveColumnIndex(server, column, &column_index)) {
+        pthread_mutex_unlock(&active_server_mutex);
+        return 0;
+    }
+
+    int ok = appendGraphVert(graph,
+                             column,
+                             column_index,
+                             value,
+                             color && *color ? color : "#ef4444");
+    pthread_mutex_unlock(&active_server_mutex);
+    return ok;
+}
+
+int loggerWebShowToday(const char* const* columns,
+                       size_t column_count) {
+    if (column_count > 0 && !columns) {
+        return 0;
+    }
+
+    pthread_mutex_lock(&active_server_mutex);
+    LoggerWebServer* server = active_server;
+    if (!server) {
+        pthread_mutex_unlock(&active_server_mutex);
+        return 0;
+    }
+
+    LoggerWebTodayColumn* next_columns = NULL;
+    if (column_count > 0) {
+        next_columns = calloc(column_count, sizeof(*next_columns));
+        if (!next_columns) {
+            pthread_mutex_unlock(&active_server_mutex);
+            return 0;
+        }
+
+        for (size_t i = 0; i < column_count; i++) {
+            if (!columns[i] || !*columns[i] ||
+                !resolveColumnIndex(server, columns[i], &next_columns[i].index)) {
+                for (size_t j = 0; j < i; j++) {
+                    free(next_columns[j].name);
+                }
+                free(next_columns);
+                pthread_mutex_unlock(&active_server_mutex);
+                return 0;
+            }
+
+            next_columns[i].name = copyString(columns[i]);
+            if (!next_columns[i].name) {
+                for (size_t j = 0; j < i; j++) {
+                    free(next_columns[j].name);
+                }
+                free(next_columns);
+                pthread_mutex_unlock(&active_server_mutex);
+                return 0;
+            }
+        }
+    }
+
+    freeTodayColumns(server);
+    server->today_columns = next_columns;
+    server->today_column_count = column_count;
+    pthread_mutex_unlock(&active_server_mutex);
+    return 1;
+}
 //Initialize the server display settings (title and column headers)
 static int initServerDisplay(LoggerWebServer* server,
                              const char* title,
@@ -387,6 +544,9 @@ static void freeServerDisplay(LoggerWebServer* server) {
     server->graphs = NULL;
     server->graph_count = 0;
     server->graph_capacity = 0;
+
+    freeTodayColumns(server);
+    server->show_stats = 0;
 }
 
 static void freeGraph(LoggerWebGraph* graph) {
@@ -404,7 +564,80 @@ static void freeGraph(LoggerWebGraph* graph) {
     }
 
     free(graph->series);
+    
+    if (graph->verts) {
+        for (size_t i = 0; i < graph->vert_count; i++) {
+            free(graph->verts[i].column);
+            free(graph->verts[i].value);
+            free(graph->verts[i].color);
+        }
+    }
+
+    free(graph->verts);
     memset(graph, 0, sizeof(*graph));
+}
+
+static void freeTodayColumns(LoggerWebServer* server) {
+    if (!server || !server->today_columns) {
+        return;
+    }
+
+    for (size_t i = 0; i < server->today_column_count; i++) {
+        free(server->today_columns[i].name);
+    }
+
+    free(server->today_columns);
+    server->today_columns = NULL;
+    server->today_column_count = 0;
+}
+
+static LoggerWebGraph* findGraphByTitle(LoggerWebServer* server, const char* title) {
+    if (!server || !title) {
+        return NULL;
+    }
+
+    for (size_t i = 0; i < server->graph_count; i++) {
+        if (stringEqualsIgnoreCase(server->graphs[i].title, title)) {
+            return &server->graphs[i];
+        }
+    }
+
+    return NULL;
+}
+
+static int appendGraphVert(LoggerWebGraph* graph,
+                           const char* column,
+                           size_t column_index,
+                           const char* value,
+                           const char* color) {
+    if (graph->vert_count == graph->vert_capacity) {
+        size_t next_capacity = graph->vert_capacity == 0 ? 2 : graph->vert_capacity * 2;
+        LoggerWebVert* next_verts = realloc(graph->verts, next_capacity * sizeof(*graph->verts));
+        if (!next_verts) {
+            return 0;
+        }
+
+        graph->verts = next_verts;
+        graph->vert_capacity = next_capacity;
+    }
+
+    LoggerWebVert* vert = &graph->verts[graph->vert_count];
+    memset(vert, 0, sizeof(*vert));
+    vert->column = copyString(column);
+    vert->value = copyString(value);
+    vert->color = copyString(color);
+    vert->column_index = column_index;
+
+    if (!vert->column || !vert->value || !vert->color) {
+        free(vert->column);
+        free(vert->value);
+        free(vert->color);
+        memset(vert, 0, sizeof(*vert));
+        return 0;
+    }
+
+    graph->vert_count++;
+    return 1;
 }
 
 //Create a copy of a string using dynamic memory allocation
@@ -512,11 +745,13 @@ static void sendGraphs(int client_fd, const LoggerWebServer* server) {
             "<h1>");
     sendEscaped(client_fd, server->title);
     sendAll(client_fd, " Graphs</h1>");
+    sendAll(client_fd, "<section id=\"today\" class=\"today-panel is-hidden\"></section>");
     sendNav(client_fd, server);
     sendAll(client_fd,
             "<main id=\"graphs\" class=\"graphs\">"
             "<p class=\"empty\">Loading graphs...</p>"
             "</main>"
+            "<script src=\"https://cdn.jsdelivr.net/npm/chart.js\"></script>"
             "<script src=\"/loggerWebGraph.js\"></script>"
             "</body>"
             "</html>");
@@ -528,9 +763,11 @@ static void sendGraphData(int client_fd, const LoggerWebServer* server) {
             "Content-Type: application/json; charset=utf-8\r\n"
             "Cache-Control: no-store\r\n"
             "Connection: close\r\n\r\n"
-            "{\"graphs\":[");
+            "{\"today\":");
 
     pthread_mutex_lock(&active_server_mutex);
+    writeTodayJson(client_fd, server);
+    sendAll(client_fd, ",\"graphs\":[");
     for (size_t i = 0; i < server->graph_count; i++) {
         if (i > 0) {
             sendAll(client_fd, ",");
@@ -924,6 +1161,10 @@ static void writeGraphJson(int client_fd,
 
     sendAll(client_fd, "],\"points\":[");
     writeGraphPointsJson(client_fd, server, graph);
+    sendAll(client_fd, "],\"stats\":");
+    writeGraphStatsJson(client_fd, server, graph);
+    sendAll(client_fd, ",\"events\":[");
+    writeGraphEventsJson(client_fd, server, graph);
     sendAll(client_fd, "]}");
 }
 
@@ -1007,6 +1248,256 @@ static void writeGraphPointsJson(int client_fd,
     fclose(file);
 }
 
+static void writeGraphStatsJson(int client_fd,
+                                const LoggerWebServer* server,
+                                const LoggerWebGraph* graph) {
+    if (!server->show_stats) {
+        sendAll(client_fd, "null");
+        return;
+    }
+
+    time_t now = time(NULL);
+    struct tm local_now;
+    if (!logLocaltime(&now, &local_now)) {
+        sendAll(client_fd, "null");
+        return;
+    }
+
+    local_now.tm_hour = 0;
+    local_now.tm_min = 0;
+    local_now.tm_sec = 0;
+    time_t window_end = mktime(&local_now);
+    time_t window_start = window_end - (time_t)24 * 60 * 60;
+
+    double* mins = calloc(graph->series_count, sizeof(*mins));
+    double* maxes = calloc(graph->series_count, sizeof(*maxes));
+    int* has_value = calloc(graph->series_count, sizeof(*has_value));
+    if (!mins || !maxes || !has_value) {
+        free(mins);
+        free(maxes);
+        free(has_value);
+        sendAll(client_fd, "null");
+        return;
+    }
+
+    size_t column_count = totalColumnCount(server);
+    FILE* file = fopen(server->log_path, "r");
+    if (file) {
+        char** fields = calloc(column_count, sizeof(*fields));
+        char line[LOGGER_WEB_MAX_LINE];
+        while (fields && fgets(line, sizeof(line), file)) {
+            char* newline = strpbrk(line, "\r\n");
+            if (newline) {
+                *newline = '\0';
+            }
+
+            splitFields(line, fields, column_count);
+            time_t logged_at = 0;
+            if (!parseUnixTime(fields[0], &logged_at) ||
+                logged_at < window_start || logged_at >= window_end) {
+                continue;
+            }
+
+            for (size_t i = 0; i < graph->series_count; i++) {
+                double value = 0.0;
+                if (!parseDouble(fields[graph->series[i].index], &value)) {
+                    continue;
+                }
+
+                if (!has_value[i]) {
+                    mins[i] = value;
+                    maxes[i] = value;
+                    has_value[i] = 1;
+                } else {
+                    if (value < mins[i]) {
+                        mins[i] = value;
+                    }
+                    if (value > maxes[i]) {
+                        maxes[i] = value;
+                    }
+                }
+            }
+        }
+
+        free(fields);
+        fclose(file);
+    }
+
+    char start_label[32];
+    char end_label[32];
+    formatUnixLabel(window_start, start_label, sizeof(start_label));
+    formatUnixLabel(window_end, end_label, sizeof(end_label));
+
+    sendAll(client_fd, "{\"windowStart\":\"");
+    sendJsonEscaped(client_fd, start_label);
+    sendAll(client_fd, "\",\"windowEnd\":\"");
+    sendJsonEscaped(client_fd, end_label);
+    sendAll(client_fd, "\",\"series\":[");
+
+    for (size_t i = 0; i < graph->series_count; i++) {
+        if (i > 0) {
+            sendAll(client_fd, ",");
+        }
+
+        sendAll(client_fd, "{\"name\":\"");
+        sendJsonEscaped(client_fd, graph->series[i].name);
+        sendAll(client_fd, "\",\"min\":");
+        if (has_value[i]) {
+            char number[64];
+            snprintf(number, sizeof(number), "%.17g", mins[i]);
+            sendAll(client_fd, number);
+        } else {
+            sendAll(client_fd, "null");
+        }
+        sendAll(client_fd, ",\"max\":");
+        if (has_value[i]) {
+            char number[64];
+            snprintf(number, sizeof(number), "%.17g", maxes[i]);
+            sendAll(client_fd, number);
+        } else {
+            sendAll(client_fd, "null");
+        }
+        sendAll(client_fd, "}");
+    }
+
+    sendAll(client_fd, "]}");
+    free(mins);
+    free(maxes);
+    free(has_value);
+}
+
+static void writeGraphEventsJson(int client_fd,
+                                 const LoggerWebServer* server,
+                                 const LoggerWebGraph* graph) {
+    if (graph->vert_count == 0) {
+        return;
+    }
+
+    size_t column_count = totalColumnCount(server);
+    FILE* file = fopen(server->log_path, "r");
+    if (!file) {
+        return;
+    }
+
+    char** fields = calloc(column_count, sizeof(*fields));
+    if (!fields) {
+        fclose(file);
+        return;
+    }
+
+    int wrote_event = 0;
+    char line[LOGGER_WEB_MAX_LINE];
+    while (fgets(line, sizeof(line), file)) {
+        char* newline = strpbrk(line, "\r\n");
+        if (newline) {
+            *newline = '\0';
+        }
+
+        splitFields(line, fields, column_count);
+        const char* x_text = fields[graph->x_index];
+        if (!x_text || !*x_text) {
+            continue;
+        }
+
+        for (size_t i = 0; i < graph->vert_count; i++) {
+            const char* field = fields[graph->verts[i].column_index];
+            if (!field || strcmp(field, graph->verts[i].value) != 0) {
+                continue;
+            }
+
+            if (wrote_event) {
+                sendAll(client_fd, ",");
+            }
+
+            sendAll(client_fd, "{\"x\":\"");
+            sendJsonEscaped(client_fd, x_text);
+            sendAll(client_fd, "\",\"label\":\"");
+            sendJsonEscaped(client_fd, graph->verts[i].value);
+            sendAll(client_fd, "\",\"color\":\"");
+            sendJsonEscaped(client_fd, graph->verts[i].color);
+            sendAll(client_fd, "\"}");
+            wrote_event = 1;
+        }
+    }
+
+    free(fields);
+    fclose(file);
+}
+
+static void writeTodayJson(int client_fd, const LoggerWebServer* server) {
+    if (server->today_column_count == 0) {
+        sendAll(client_fd, "null");
+        return;
+    }
+
+    if (server->today_column_count > 16) {
+        sendAll(client_fd, "null");
+        return;
+    }
+
+    size_t column_count = totalColumnCount(server);
+    double values[16] = {0};
+    int has_value[16] = {0};
+    char latest_time[128] = "";
+    FILE* file = fopen(server->log_path, "r");
+    if (file) {
+        char** fields = calloc(column_count, sizeof(*fields));
+        char line[LOGGER_WEB_MAX_LINE];
+        while (fields && fgets(line, sizeof(line), file)) {
+            char* newline = strpbrk(line, "\r\n");
+            if (newline) {
+                *newline = '\0';
+            }
+
+            splitFields(line, fields, column_count);
+            int any_value = 0;
+            double row_values[16] = {0};
+            int row_has_value[16] = {0};
+
+            for (size_t i = 0; i < server->today_column_count; i++) {
+                if (parseDouble(fields[server->today_columns[i].index], &row_values[i])) {
+                    row_has_value[i] = 1;
+                    any_value = 1;
+                }
+            }
+
+            if (!any_value) {
+                continue;
+            }
+
+            for (size_t i = 0; i < server->today_column_count; i++) {
+                values[i] = row_values[i];
+                has_value[i] = row_has_value[i];
+            }
+            snprintf(latest_time, sizeof(latest_time), "%s", fields[1] ? fields[1] : "");
+        }
+
+        free(fields);
+        fclose(file);
+    }
+
+    sendAll(client_fd, "{\"time\":\"");
+    sendJsonEscaped(client_fd, latest_time);
+    sendAll(client_fd, "\",\"columns\":[");
+    for (size_t i = 0; i < server->today_column_count; i++) {
+        if (i > 0) {
+            sendAll(client_fd, ",");
+        }
+
+        sendAll(client_fd, "{\"name\":\"");
+        sendJsonEscaped(client_fd, server->today_columns[i].name);
+        sendAll(client_fd, "\",\"value\":");
+        if (has_value[i]) {
+            char number[64];
+            snprintf(number, sizeof(number), "%.17g", values[i]);
+            sendAll(client_fd, number);
+        } else {
+            sendAll(client_fd, "null");
+        }
+        sendAll(client_fd, "}");
+    }
+    sendAll(client_fd, "]}");
+}
 static int parseDouble(const char* value, double* out) {
     if (!value || !*value || !out) {
         return 0;
@@ -1028,6 +1519,47 @@ static int parseDouble(const char* value, double* out) {
 
     *out = parsed;
     return 1;
+}
+
+
+static int parseUnixTime(const char* value, time_t* out) {
+    if (!value || !*value || !out) {
+        return 0;
+    }
+
+    errno = 0;
+    char* end = NULL;
+    long long parsed = strtoll(value, &end, 10);
+    if (end == value || errno == ERANGE) {
+        return 0;
+    }
+
+    while (end && *end && isspace((unsigned char)*end)) {
+        end++;
+    }
+    if (end && *end) {
+        return 0;
+    }
+
+    *out = (time_t)parsed;
+    return 1;
+}
+
+static int logLocaltime(const time_t* value, struct tm* out) {
+    if (!value || !out) {
+        return 0;
+    }
+
+    return localtime_r(value, out) != NULL;
+}
+
+static void formatUnixLabel(time_t value, char* buffer, size_t buffer_size) {
+    struct tm local;
+    if (logLocaltime(&value, &local)) {
+        strftime(buffer, buffer_size, "%Y-%m-%d %H:%M:%S", &local);
+    } else if (buffer_size > 0) {
+        buffer[0] = '\0';
+    }
 }
 
 static int loggerWebHasGraphs(const LoggerWebServer* server) {

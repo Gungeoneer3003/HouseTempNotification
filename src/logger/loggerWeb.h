@@ -15,5 +15,12 @@ int loggerWebInsertGraphSeries(const char* title,
                                const char* x_column,
                                const char* const* y_columns,
                                size_t y_column_count);
+int loggerWebShowStats(int enabled);
+int loggerWebShowVerts(const char* graph_title,
+                       const char* column,
+                       const char* value,
+                       const char* color);
+int loggerWebShowToday(const char* const* columns,
+                       size_t column_count);
 
 #endif

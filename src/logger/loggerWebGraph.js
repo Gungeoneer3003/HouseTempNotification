@@ -1,14 +1,65 @@
 (function () {
     const root = document.getElementById("graphs");
+    const todayRoot = document.getElementById("today");
     const colors = ["#22c55e", "#38bdf8", "#f59e0b", "#e879f9", "#f43f5e", "#a3e635"];
+    const charts = [];
     let currentGraphs = [];
-    let resizeTimer = 0;
+    let currentToday = null;
 
     if (!root) {
         return;
     }
 
+    function chartIsReady() {
+        return typeof window.Chart === "function";
+    }
+
+    const eventMarkerPlugin = {
+        id: "loggerEventMarkers",
+        beforeDatasetsDraw(chart, args, options) {
+            const events = options && Array.isArray(options.events) ? options.events : [];
+            if (events.length === 0) {
+                return;
+            }
+
+            const xScale = chart.scales.x;
+            const area = chart.chartArea;
+            if (!xScale || !area) {
+                return;
+            }
+
+            const labels = chart.data.labels || [];
+            const ctx = chart.ctx;
+            ctx.save();
+            events.forEach((event) => {
+                const index = labels.indexOf(event.x);
+                if (index < 0) {
+                    return;
+                }
+
+                const x = xScale.getPixelForValue(index);
+                if (!Number.isFinite(x)) {
+                    return;
+                }
+
+                ctx.strokeStyle = event.color || "#ef4444";
+                ctx.lineWidth = 1.5;
+                ctx.setLineDash([5, 5]);
+                ctx.beginPath();
+                ctx.moveTo(x, area.top);
+                ctx.lineTo(x, area.bottom);
+                ctx.stroke();
+            });
+            ctx.restore();
+        }
+    };
+
     async function loadGraphs() {
+        if (!chartIsReady()) {
+            renderError("Chart.js is unavailable.");
+            return;
+        }
+
         try {
             const response = await fetch("/graphs/data", { cache: "no-store" });
             if (!response.ok) {
@@ -16,15 +67,64 @@
             }
 
             const data = await response.json();
+            currentToday = data.today || null;
             currentGraphs = Array.isArray(data.graphs) ? data.graphs : [];
+            renderToday();
             renderGraphs();
         } catch (error) {
-            root.innerHTML = "";
-            root.appendChild(emptyMessage("Graph data unavailable."));
+            renderToday(null);
+            renderError("Graph data unavailable.");
+        }
+    }
+
+    function renderToday(value) {
+        const today = arguments.length > 0 ? value : currentToday;
+        if (!todayRoot) {
+            return;
+        }
+
+        todayRoot.innerHTML = "";
+        if (!today || !Array.isArray(today.columns) || today.columns.length === 0) {
+            todayRoot.classList.add("is-hidden");
+            return;
+        }
+
+        todayRoot.classList.remove("is-hidden");
+
+        const heading = document.createElement("div");
+        heading.className = "today-heading";
+        heading.textContent = "Current readings";
+        todayRoot.appendChild(heading);
+
+        const readings = document.createElement("div");
+        readings.className = "today-readings";
+        today.columns.forEach((column) => {
+            const item = document.createElement("div");
+            item.className = "today-reading";
+
+            const label = document.createElement("span");
+            label.className = "today-label";
+            label.textContent = column.name;
+            item.appendChild(label);
+
+            const number = document.createElement("span");
+            number.className = "today-value";
+            number.textContent = Number.isFinite(column.value) ? formatNumber(column.value) : "--";
+            item.appendChild(number);
+            readings.appendChild(item);
+        });
+        todayRoot.appendChild(readings);
+
+        if (today.time) {
+            const updated = document.createElement("div");
+            updated.className = "today-updated";
+            updated.textContent = `Updated ${today.time}`;
+            todayRoot.appendChild(updated);
         }
     }
 
     function renderGraphs() {
+        destroyCharts();
         root.innerHTML = "";
 
         if (currentGraphs.length === 0) {
@@ -32,14 +132,12 @@
             return;
         }
 
-        currentGraphs.forEach((graph, index) => {
-            root.appendChild(createGraphSection(graph, index));
+        currentGraphs.forEach((graph) => {
+            root.appendChild(createGraphSection(graph));
         });
-
-        drawAllGraphs();
     }
 
-    function createGraphSection(graph, index) {
+    function createGraphSection(graph) {
         const section = document.createElement("section");
         section.className = "graph";
 
@@ -47,260 +145,193 @@
         title.textContent = graph.title || "Graph";
         section.appendChild(title);
 
-        const legend = document.createElement("div");
-        legend.className = "legend";
-        (graph.series || []).forEach((series, seriesIndex) => {
-            const item = document.createElement("span");
-            item.className = "legend-item";
-
-            const swatch = document.createElement("span");
-            swatch.className = "legend-swatch";
-            swatch.style.backgroundColor = colorForSeries(seriesIndex);
-            item.appendChild(swatch);
-
-            const label = document.createElement("span");
-            label.textContent = series.name || "Series";
-            item.appendChild(label);
-            legend.appendChild(item);
-        });
-        section.appendChild(legend);
+        const chartWrap = document.createElement("div");
+        chartWrap.className = "chart-wrap";
 
         const canvas = document.createElement("canvas");
         canvas.className = "chart";
-        canvas.dataset.graphIndex = String(index);
         canvas.setAttribute("role", "img");
         canvas.setAttribute("aria-label", graph.title || "Graph");
-        section.appendChild(canvas);
+        chartWrap.appendChild(canvas);
+        section.appendChild(chartWrap);
+
+        createChart(canvas, graph);
+
+        const stats = createStatsBox(graph);
+        if (stats) {
+            section.appendChild(stats);
+        }
 
         return section;
     }
 
-    function drawAllGraphs() {
-        const canvases = root.querySelectorAll("canvas[data-graph-index]");
-        canvases.forEach((canvas) => {
-            const index = Number(canvas.dataset.graphIndex);
-            drawGraph(canvas, currentGraphs[index]);
-        });
-    }
-
-    function drawGraph(canvas, graph) {
-        if (!canvas || !graph) {
-            return;
-        }
-
-        const width = Math.max(canvas.clientWidth || 720, 320);
-        const height = Math.max(canvas.clientHeight || 320, 280);
-        const scale = window.devicePixelRatio || 1;
-        canvas.width = Math.round(width * scale);
-        canvas.height = Math.round(height * scale);
-
-        const ctx = canvas.getContext("2d");
-        ctx.setTransform(scale, 0, 0, scale, 0, 0);
-        ctx.clearRect(0, 0, width, height);
-
-        const points = Array.isArray(graph.points) ? graph.points : [];
-        const series = Array.isArray(graph.series) ? graph.series : [];
-        const values = collectValues(points);
-        if (points.length === 0 || series.length === 0 || values.length === 0) {
-            drawEmptyChart(ctx, width, height, "No numeric data found.");
-            return;
-        }
-
-        const bounds = valueBounds(values);
-        const plot = {
-            left: 58,
-            top: 20,
-            right: width - 20,
-            bottom: height - 52
-        };
-        plot.width = plot.right - plot.left;
-        plot.height = plot.bottom - plot.top;
-
-        drawGrid(ctx, plot, bounds);
-        drawSeries(ctx, plot, points, series, bounds);
-        drawAxes(ctx, plot, points, graph, bounds);
-    }
-
-    function collectValues(points) {
-        const values = [];
-        points.forEach((point) => {
-            (point.values || []).forEach((value) => {
-                if (Number.isFinite(value)) {
-                    values.push(value);
-                }
-            });
-        });
-        return values;
-    }
-
-    function valueBounds(values) {
-        let min = Math.min(...values);
-        let max = Math.max(...values);
-        if (min === max) {
-            min -= 1;
-            max += 1;
-        } else {
-            const padding = (max - min) * 0.08;
-            min -= padding;
-            max += padding;
-        }
-        return { min, max };
-    }
-
-    function drawGrid(ctx, plot, bounds) {
-        ctx.save();
-        ctx.lineWidth = 1;
-        ctx.strokeStyle = "#263345";
-        ctx.fillStyle = "#cbd5e1";
-        ctx.font = "12px system-ui, -apple-system, Segoe UI, sans-serif";
-        ctx.textAlign = "right";
-        ctx.textBaseline = "middle";
-
-        for (let tick = 0; tick <= 4; tick++) {
-            const y = plot.top + (plot.height * tick / 4);
-            const value = bounds.max - ((bounds.max - bounds.min) * tick / 4);
-            ctx.beginPath();
-            ctx.moveTo(plot.left, y);
-            ctx.lineTo(plot.right, y);
-            ctx.stroke();
-            ctx.fillText(formatNumber(value), plot.left - 10, y);
-        }
-
-        ctx.strokeStyle = "#94a3b8";
-        ctx.beginPath();
-        ctx.moveTo(plot.left, plot.top);
-        ctx.lineTo(plot.left, plot.bottom);
-        ctx.lineTo(plot.right, plot.bottom);
-        ctx.stroke();
-        ctx.restore();
-    }
-
-    function drawSeries(ctx, plot, points, series, bounds) {
-        series.forEach((item, seriesIndex) => {
-            const color = colorForSeries(seriesIndex);
-            const linePoints = points.map((point, pointIndex) => {
+    function createChart(canvas, graph) {
+        const labels = (graph.points || []).map((point) => point.x);
+        const datasets = (graph.series || []).map((series, seriesIndex) => ({
+            label: series.name || "Series",
+            data: (graph.points || []).map((point) => {
                 const value = point.values ? point.values[seriesIndex] : null;
-                if (!Number.isFinite(value)) {
-                    return null;
+                return Number.isFinite(value) ? value : null;
+            }),
+            borderColor: colorForSeries(seriesIndex),
+            backgroundColor: transparentColor(colorForSeries(seriesIndex), 0.12),
+            borderWidth: 2.75,
+            cubicInterpolationMode: "default",
+            tension: 0.48,
+            pointRadius: 0,
+            pointHitRadius: 12,
+            pointHoverRadius: 4,
+            spanGaps: true
+        }));
+
+        const chart = new Chart(canvas, {
+            type: "line",
+            data: {
+                labels,
+                datasets
+            },
+            plugins: [eventMarkerPlugin],
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                normalized: true,
+                animation: {
+                    duration: 300
+                },
+                interaction: {
+                    intersect: false,
+                    mode: "index"
+                },
+                elements: {
+                    line: {
+                        borderCapStyle: "round",
+                        borderJoinStyle: "round"
+                    }
+                },
+                plugins: {
+                    loggerEventMarkers: {
+                        events: Array.isArray(graph.events) ? graph.events : []
+                    },
+                    legend: {
+                        labels: {
+                            color: "#cbd5e1",
+                            usePointStyle: true,
+                            boxWidth: 8,
+                            boxHeight: 8
+                        }
+                    },
+                    tooltip: {
+                        backgroundColor: "#020617",
+                        borderColor: "#334155",
+                        borderWidth: 1,
+                        titleColor: "#f8fafc",
+                        bodyColor: "#e5e7eb",
+                        displayColors: true
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: {
+                            color: "rgba(31, 41, 55, 0.55)"
+                        },
+                        ticks: {
+                            color: "#cbd5e1",
+                            maxRotation: 0,
+                            autoSkip: true,
+                            maxTicksLimit: 8,
+                            callback: function (value) {
+                                return shortTime(this.getLabelForValue(value));
+                            }
+                        },
+                        title: {
+                            display: true,
+                            text: graph.xColumn || "Time",
+                            color: "#cbd5e1"
+                        }
+                    },
+                    y: {
+                        grid: {
+                            color: "rgba(38, 51, 69, 0.72)"
+                        },
+                        ticks: {
+                            color: "#cbd5e1"
+                        },
+                        title: {
+                            display: true,
+                            text: axisTitle(graph),
+                            color: "#cbd5e1"
+                        }
+                    }
                 }
-
-                return {
-                    x: xPosition(plot, pointIndex, points.length),
-                    y: yPosition(plot, value, bounds)
-                };
-            });
-
-            drawLineSegments(ctx, linePoints, color);
-            drawLatestPoint(ctx, linePoints, color);
-        });
-    }
-
-    function drawLineSegments(ctx, points, color) {
-        let segment = [];
-        points.forEach((point) => {
-            if (point) {
-                segment.push(point);
-            } else {
-                drawSmoothSegment(ctx, segment, color);
-                segment = [];
             }
         });
-        drawSmoothSegment(ctx, segment, color);
+
+        charts.push(chart);
     }
 
-    function drawSmoothSegment(ctx, points, color) {
-        if (points.length === 0) {
-            return;
+    function createStatsBox(graph) {
+        const stats = graph.stats;
+        if (!stats || !Array.isArray(stats.series) || stats.series.length === 0) {
+            return null;
         }
 
-        ctx.save();
-        ctx.strokeStyle = color;
-        ctx.fillStyle = color;
-        ctx.lineWidth = 2.5;
-        ctx.lineCap = "round";
-        ctx.lineJoin = "round";
+        const box = document.createElement("div");
+        box.className = "stats-box";
 
-        if (points.length === 1) {
-            ctx.beginPath();
-            ctx.arc(points[0].x, points[0].y, 3, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.restore();
-            return;
+        const title = document.createElement("div");
+        title.className = "stats-title";
+        title.textContent = stats.windowStart && stats.windowEnd
+            ? `Last 24 hours (${shortDate(stats.windowStart)} - ${shortDate(stats.windowEnd)})`
+            : "Last 24 hours";
+        box.appendChild(title);
+
+        const grid = document.createElement("div");
+        grid.className = "stats-grid";
+        stats.series.forEach((item, index) => {
+            const card = document.createElement("div");
+            card.className = "stat-card";
+            card.style.borderColor = transparentColor(colorForSeries(index), 0.56);
+
+            const name = document.createElement("div");
+            name.className = "stat-name";
+            name.textContent = item.name;
+            card.appendChild(name);
+
+            const values = document.createElement("div");
+            values.className = "stat-values";
+            values.appendChild(statValue("Min", item.min));
+            values.appendChild(statValue("Max", item.max));
+            card.appendChild(values);
+            grid.appendChild(card);
+        });
+        box.appendChild(grid);
+        return box;
+    }
+
+    function statValue(label, value) {
+        const item = document.createElement("div");
+        item.className = "stat-value";
+
+        const labelElement = document.createElement("span");
+        labelElement.textContent = label;
+        item.appendChild(labelElement);
+
+        const valueElement = document.createElement("strong");
+        valueElement.textContent = Number.isFinite(value) ? formatNumber(value) : "--";
+        item.appendChild(valueElement);
+        return item;
+    }
+
+    function destroyCharts() {
+        while (charts.length > 0) {
+            charts.pop().destroy();
         }
-
-        ctx.beginPath();
-        ctx.moveTo(points[0].x, points[0].y);
-        for (let i = 1; i < points.length - 1; i++) {
-            const midX = (points[i].x + points[i + 1].x) / 2;
-            const midY = (points[i].y + points[i + 1].y) / 2;
-            ctx.quadraticCurveTo(points[i].x, points[i].y, midX, midY);
-        }
-        const last = points[points.length - 1];
-        ctx.lineTo(last.x, last.y);
-        ctx.stroke();
-        ctx.restore();
     }
 
-    function drawLatestPoint(ctx, points, color) {
-        for (let i = points.length - 1; i >= 0; i--) {
-            if (!points[i]) {
-                continue;
-            }
-
-            ctx.save();
-            ctx.fillStyle = color;
-            ctx.strokeStyle = "#111827";
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.arc(points[i].x, points[i].y, 4, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.stroke();
-            ctx.restore();
-            return;
-        }
-    }
-
-    function drawAxes(ctx, plot, points, graph, bounds) {
-        ctx.save();
-        ctx.fillStyle = "#cbd5e1";
-        ctx.font = "12px system-ui, -apple-system, Segoe UI, sans-serif";
-        ctx.textBaseline = "top";
-        ctx.textAlign = "left";
-        ctx.fillText(points[0].x, plot.left, plot.bottom + 10);
-        ctx.textAlign = "right";
-        ctx.fillText(points[points.length - 1].x, plot.right, plot.bottom + 10);
-
-        ctx.textAlign = "center";
-        ctx.font = "600 12px system-ui, -apple-system, Segoe UI, sans-serif";
-        ctx.fillText(graph.xColumn || "X", plot.left + plot.width / 2, plot.bottom + 32);
-
-        ctx.translate(14, plot.top + plot.height / 2);
-        ctx.rotate(-Math.PI / 2);
-        ctx.fillText(axisTitle(graph), 0, 0);
-        ctx.restore();
-
-        void bounds;
-    }
-
-    function drawEmptyChart(ctx, width, height, message) {
-        ctx.save();
-        ctx.fillStyle = "#cbd5e1";
-        ctx.font = "14px system-ui, -apple-system, Segoe UI, sans-serif";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(message, width / 2, height / 2);
-        ctx.restore();
-    }
-
-    function xPosition(plot, index, count) {
-        if (count <= 1) {
-            return plot.left + plot.width / 2;
-        }
-        return plot.left + (plot.width * index / (count - 1));
-    }
-
-    function yPosition(plot, value, bounds) {
-        return plot.top + ((bounds.max - value) * plot.height / (bounds.max - bounds.min));
+    function renderError(message) {
+        destroyCharts();
+        root.innerHTML = "";
+        root.appendChild(emptyMessage(message));
     }
 
     function axisTitle(graph) {
@@ -308,8 +339,34 @@
         return names.length <= 1 ? (names[0] || "Y") : "Temperature";
     }
 
+    function shortTime(label) {
+        if (typeof label !== "string") {
+            return label;
+        }
+
+        const match = label.match(/\b(\d{1,2}:\d{2})(?::\d{2})?\b/);
+        return match ? match[1] : label;
+    }
+
+    function shortDate(label) {
+        if (typeof label !== "string") {
+            return "";
+        }
+
+        const match = label.match(/^(\d{4}-\d{2}-\d{2})/);
+        return match ? match[1] : label;
+    }
+
     function colorForSeries(index) {
         return colors[index % colors.length];
+    }
+
+    function transparentColor(hex, alpha) {
+        const value = hex.replace("#", "");
+        const red = parseInt(value.slice(0, 2), 16);
+        const green = parseInt(value.slice(2, 4), 16);
+        const blue = parseInt(value.slice(4, 6), 16);
+        return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
     }
 
     function formatNumber(value) {
@@ -322,11 +379,6 @@
         element.textContent = message;
         return element;
     }
-
-    window.addEventListener("resize", () => {
-        clearTimeout(resizeTimer);
-        resizeTimer = setTimeout(drawAllGraphs, 100);
-    });
 
     loadGraphs();
     setInterval(loadGraphs, 30000);
