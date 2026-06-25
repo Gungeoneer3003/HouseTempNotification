@@ -11,5 +11,9 @@ int loggerWebStart(const char* log_path,
 int loggerWebInsertGraph(const char* title,
                          const char* x_column,
                          const char* y_column);
+int loggerWebInsertGraphSeries(const char* title,
+                               const char* x_column,
+                               const char* const* y_columns,
+                               size_t y_column_count);
 
 #endif

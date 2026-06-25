@@ -70,53 +70,37 @@ a {
     color: #f8fafc;
 }
 
+.legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 14px;
+    margin: 0 0 12px;
+}
+
+.legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: #cbd5e1;
+    font-size: 13px;
+}
+
+.legend-swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+}
+
 .chart {
     display: block;
     width: 100%;
-    max-width: 960px;
-    height: auto;
+    height: 320px;
+    background: #0b1220;
+    border-radius: 4px;
 }
 
-.grid-line {
-    stroke: #263345;
-    stroke-width: 1;
-}
-
-.axis-line {
-    stroke: #94a3b8;
-    stroke-width: 1;
-}
-
-.graph-line {
-    fill: none;
-    stroke: #22c55e;
-    stroke-width: 2.5;
-    stroke-linejoin: round;
-    stroke-linecap: round;
-}
-
-.latest-point {
-    fill: #f59e0b;
-    stroke: #111827;
-    stroke-width: 2;
-}
-
-.y-tick,
-.x-tick,
-.axis-title {
-    fill: #cbd5e1;
-    font-size: 12px;
-}
-
-.y-tick {
-    text-anchor: end;
-}
-
-.x-tick.end {
-    text-anchor: end;
-}
-
-.axis-title {
-    text-anchor: middle;
-    font-weight: 600;
+@media (max-width: 640px) {
+    .chart {
+        height: 280px;
+    }
 }

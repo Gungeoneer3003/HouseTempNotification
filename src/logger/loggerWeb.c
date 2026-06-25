@@ -39,6 +39,19 @@ int loggerWebInsertGraph(const char* title,
     fprintf(stderr, "Logger web graphs are not supported on Windows\n");
     return 0;
 }
+
+int loggerWebInsertGraphSeries(const char* title,
+                               const char* x_column,
+                               const char* const* y_columns,
+                               size_t y_column_count) {
+    (void)title;
+    (void)x_column;
+    (void)y_columns;
+    (void)y_column_count;
+
+    fprintf(stderr, "Logger web graphs are not supported on Windows\n");
+    return 0;
+}
 #else
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -56,17 +69,17 @@ int loggerWebInsertGraph(const char* title,
 #endif
 
 typedef struct {
-    char* title;
-    char* x_column;
-    char* y_column;
-    size_t x_index;
-    size_t y_index;
-} LoggerWebGraph;
+    char* name;
+    size_t index;
+} LoggerWebGraphSeries;
 
 typedef struct {
-    char* x_label;
-    double y_value;
-} LoggerWebPoint;
+    char* title;
+    char* x_column;
+    size_t x_index;
+    LoggerWebGraphSeries* series;
+    size_t series_count;
+} LoggerWebGraph;
 
 typedef struct {
     char log_path[512];
@@ -89,16 +102,19 @@ static int initServerDisplay(LoggerWebServer* server,
                              const char* const* column_headers,
                              size_t column_header_count);
 static void freeServerDisplay(LoggerWebServer* server);
+static void freeGraph(LoggerWebGraph* graph);
 static char* copyString(const char* value);
 static void* serverLoop(void* arg);
 static void handleClient(int client_fd, const LoggerWebServer* server);
 static void sendIndex(int client_fd, const LoggerWebServer* server);
 static void sendGraphs(int client_fd, const LoggerWebServer* server);
+static void sendGraphData(int client_fd, const LoggerWebServer* server);
 static void sendRawLog(int client_fd, const char* log_path);
 static void sendNotFound(int client_fd);
 static void sendBytes(int fd, const char* data, size_t length);
 static void sendAll(int fd, const char* data);
 static void sendEscaped(int fd, const char* value);
+static void sendJsonEscaped(int fd, const char* value);
 static void sendTemplate(int client_fd, const char* path, const LoggerWebServer* server);
 static void sendTemplateLine(int client_fd, const char* line, const LoggerWebServer* server);
 static void sendNav(int client_fd, const LoggerWebServer* server);
@@ -108,31 +124,20 @@ static size_t totalColumnCount(const LoggerWebServer* server);
 static int splitFields(char* line, char** fields, size_t column_count);
 static void writeLogRows(int client_fd, const LoggerWebServer* server);
 static void writeLogRow(int client_fd, char* line, const LoggerWebServer* server);
-static void writeGraphSection(int client_fd,
-                              const LoggerWebServer* server,
-                              const LoggerWebGraph* graph);
-static int appendGraphPoint(LoggerWebPoint** points,
-                            size_t* point_count,
-                            size_t* point_capacity,
-                            const char* x_label,
-                            double y_value);
-static void freeGraphPoints(LoggerWebPoint* points, size_t point_count);
-static void sendGraphSvg(int client_fd,
-                         const LoggerWebGraph* graph,
-                         const LoggerWebPoint* points,
-                         size_t point_count);
-static void sendGraphAxisLabels(int client_fd,
-                                const LoggerWebGraph* graph,
-                                const LoggerWebPoint* points,
-                                size_t point_count,
-                                double min_y,
-                                double max_y);
+static void writeGraphJson(int client_fd,
+                           const LoggerWebServer* server,
+                           const LoggerWebGraph* graph);
+static void writeGraphPointsJson(int client_fd,
+                                 const LoggerWebServer* server,
+                                 const LoggerWebGraph* graph);
+static int parseDouble(const char* value, double* out);
 static int loggerWebHasGraphs(const LoggerWebServer* server);
 static int resolveColumnIndex(const LoggerWebServer* server,
                               const char* column,
                               size_t* index);
 static int stringEqualsIgnoreCase(const char* left, const char* right);
 static void sendCss(int client_fd);
+static void sendGraphScript(int client_fd);
 
 //Start the logger web server on the specified port
 int loggerWebStart(const char* log_path,
@@ -229,7 +234,16 @@ int loggerWebStart(const char* log_path,
 int loggerWebInsertGraph(const char* title,
                          const char* x_column,
                          const char* y_column) {
-    if (!title || !*title || !x_column || !*x_column || !y_column || !*y_column) {
+    const char* y_columns[] = {y_column};
+    return loggerWebInsertGraphSeries(title, x_column, y_columns, 1);
+}
+
+int loggerWebInsertGraphSeries(const char* title,
+                               const char* x_column,
+                               const char* const* y_columns,
+                               size_t y_column_count) {
+    if (!title || !*title || !x_column || !*x_column ||
+        !y_columns || y_column_count == 0) {
         return 0;
     }
 
@@ -241,11 +255,39 @@ int loggerWebInsertGraph(const char* title,
     }
 
     size_t x_index = 0;
-    size_t y_index = 0;
-    if (!resolveColumnIndex(server, x_column, &x_index) ||
-        !resolveColumnIndex(server, y_column, &y_index)) {
+    if (!resolveColumnIndex(server, x_column, &x_index)) {
         pthread_mutex_unlock(&active_server_mutex);
         return 0;
+    }
+
+    LoggerWebGraph graph;
+    memset(&graph, 0, sizeof(graph));
+    graph.title = copyString(title);
+    graph.x_column = copyString(x_column);
+    graph.x_index = x_index;
+    graph.series_count = y_column_count;
+    graph.series = calloc(y_column_count, sizeof(*graph.series));
+
+    if (!graph.title || !graph.x_column || !graph.series) {
+        freeGraph(&graph);
+        pthread_mutex_unlock(&active_server_mutex);
+        return 0;
+    }
+
+    for (size_t i = 0; i < y_column_count; i++) {
+        if (!y_columns[i] || !*y_columns[i] ||
+            !resolveColumnIndex(server, y_columns[i], &graph.series[i].index)) {
+            freeGraph(&graph);
+            pthread_mutex_unlock(&active_server_mutex);
+            return 0;
+        }
+
+        graph.series[i].name = copyString(y_columns[i]);
+        if (!graph.series[i].name) {
+            freeGraph(&graph);
+            pthread_mutex_unlock(&active_server_mutex);
+            return 0;
+        }
     }
 
     if (server->graph_count == server->graph_capacity) {
@@ -253,6 +295,7 @@ int loggerWebInsertGraph(const char* title,
         LoggerWebGraph* next_graphs = realloc(server->graphs,
                                               next_capacity * sizeof(*server->graphs));
         if (!next_graphs) {
+            freeGraph(&graph);
             pthread_mutex_unlock(&active_server_mutex);
             return 0;
         }
@@ -261,23 +304,7 @@ int loggerWebInsertGraph(const char* title,
         server->graph_capacity = next_capacity;
     }
 
-    LoggerWebGraph* graph = &server->graphs[server->graph_count];
-    memset(graph, 0, sizeof(*graph));
-    graph->title = copyString(title);
-    graph->x_column = copyString(x_column);
-    graph->y_column = copyString(y_column);
-    graph->x_index = x_index;
-    graph->y_index = y_index;
-
-    if (!graph->title || !graph->x_column || !graph->y_column) {
-        free(graph->title);
-        free(graph->x_column);
-        free(graph->y_column);
-        memset(graph, 0, sizeof(*graph));
-        pthread_mutex_unlock(&active_server_mutex);
-        return 0;
-    }
-
+    server->graphs[server->graph_count] = graph;
     server->graph_count++;
     pthread_mutex_unlock(&active_server_mutex);
     return 1;
@@ -352,9 +379,7 @@ static void freeServerDisplay(LoggerWebServer* server) {
     //Free each graph definition and the graph array
     if (server->graphs) {
         for (size_t i = 0; i < server->graph_count; i++) {
-            free(server->graphs[i].title);
-            free(server->graphs[i].x_column);
-            free(server->graphs[i].y_column);
+            freeGraph(&server->graphs[i]);
         }
     }
 
@@ -362,6 +387,24 @@ static void freeServerDisplay(LoggerWebServer* server) {
     server->graphs = NULL;
     server->graph_count = 0;
     server->graph_capacity = 0;
+}
+
+static void freeGraph(LoggerWebGraph* graph) {
+    if (!graph) {
+        return;
+    }
+
+    free(graph->title);
+    free(graph->x_column);
+
+    if (graph->series) {
+        for (size_t i = 0; i < graph->series_count; i++) {
+            free(graph->series[i].name);
+        }
+    }
+
+    free(graph->series);
+    memset(graph, 0, sizeof(*graph));
 }
 
 //Create a copy of a string using dynamic memory allocation
@@ -409,6 +452,9 @@ static void handleClient(int client_fd, const LoggerWebServer* server) {
     //(Probably want to make this less dense)
     if (strncmp(request, "GET / ", 6) == 0 || strncmp(request, "GET /?", 6) == 0) {
         sendIndex(client_fd, server);
+    } else if (strncmp(request, "GET /graphs/data ", 17) == 0 ||
+               strncmp(request, "GET /graphs/data?", 17) == 0) {
+        sendGraphData(client_fd, server);
     } else if (strncmp(request, "GET /graphs ", 12) == 0 ||
                strncmp(request, "GET /graphs?", 12) == 0) {
         sendGraphs(client_fd, server);
@@ -417,6 +463,9 @@ static void handleClient(int client_fd, const LoggerWebServer* server) {
     } else if (strncmp(request, "GET /style.css ", 15) == 0 ||
            strncmp(request, "GET /style.css?", 15) == 0) {
         sendCss(client_fd);
+    } else if (strncmp(request, "GET /loggerWebGraph.js ", 23) == 0 ||
+           strncmp(request, "GET /loggerWebGraph.js?", 23) == 0) {
+        sendGraphScript(client_fd);
     } else {
         sendNotFound(client_fd);
     }
@@ -453,7 +502,6 @@ static void sendGraphs(int client_fd, const LoggerWebServer* server) {
             "<head>"
             "<meta charset=\"utf-8\">"
             "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
-            "<meta http-equiv=\"refresh\" content=\"30\">"
             "<title>");
     sendEscaped(client_fd, server->title);
     sendAll(client_fd,
@@ -465,22 +513,34 @@ static void sendGraphs(int client_fd, const LoggerWebServer* server) {
     sendEscaped(client_fd, server->title);
     sendAll(client_fd, " Graphs</h1>");
     sendNav(client_fd, server);
-    sendAll(client_fd, "<main class=\"graphs\">");
+    sendAll(client_fd,
+            "<main id=\"graphs\" class=\"graphs\">"
+            "<p class=\"empty\">Loading graphs...</p>"
+            "</main>"
+            "<script src=\"/loggerWebGraph.js\"></script>"
+            "</body>"
+            "</html>");
+}
+
+static void sendGraphData(int client_fd, const LoggerWebServer* server) {
+    sendAll(client_fd,
+            "HTTP/1.1 200 OK\r\n"
+            "Content-Type: application/json; charset=utf-8\r\n"
+            "Cache-Control: no-store\r\n"
+            "Connection: close\r\n\r\n"
+            "{\"graphs\":[");
 
     pthread_mutex_lock(&active_server_mutex);
-    if (server->graph_count == 0) {
-        sendAll(client_fd, "<p class=\"empty\">No graphs configured.</p>");
-    } else {
-        for (size_t i = 0; i < server->graph_count; i++) {
-            writeGraphSection(client_fd, server, &server->graphs[i]);
+    for (size_t i = 0; i < server->graph_count; i++) {
+        if (i > 0) {
+            sendAll(client_fd, ",");
         }
+
+        writeGraphJson(client_fd, server, &server->graphs[i]);
     }
     pthread_mutex_unlock(&active_server_mutex);
 
-    sendAll(client_fd,
-            "</main>"
-            "</body>"
-            "</html>");
+    sendAll(client_fd, "]}");
 }
 
 //Send the raw log file as plain text
@@ -561,6 +621,44 @@ static void sendEscaped(int fd, const char* value) {
                 sendAll(fd, c);
                 break;
             }
+        }
+    }
+}
+
+static void sendJsonEscaped(int fd, const char* value) {
+    for (const unsigned char* p = (const unsigned char*)value; p && *p; p++) {
+        switch (*p) {
+            case '"':
+                sendAll(fd, "\\\"");
+                break;
+            case '\\':
+                sendAll(fd, "\\\\");
+                break;
+            case '\b':
+                sendAll(fd, "\\b");
+                break;
+            case '\f':
+                sendAll(fd, "\\f");
+                break;
+            case '\n':
+                sendAll(fd, "\\n");
+                break;
+            case '\r':
+                sendAll(fd, "\\r");
+                break;
+            case '\t':
+                sendAll(fd, "\\t");
+                break;
+            default:
+                if (*p < 0x20) {
+                    char escaped[8];
+                    snprintf(escaped, sizeof(escaped), "\\u%04x", (unsigned)*p);
+                    sendAll(fd, escaped);
+                } else {
+                    char c[2] = {(char)*p, '\0'};
+                    sendAll(fd, c);
+                }
+                break;
         }
     }
 }
@@ -805,32 +903,51 @@ static void writeLogRow(int client_fd, char* line, const LoggerWebServer* server
     free(fields);
 }
 
-static void writeGraphSection(int client_fd,
-                              const LoggerWebServer* server,
-                              const LoggerWebGraph* graph) {
+static void writeGraphJson(int client_fd,
+                           const LoggerWebServer* server,
+                           const LoggerWebGraph* graph) {
+    sendAll(client_fd, "{\"title\":\"");
+    sendJsonEscaped(client_fd, graph->title);
+    sendAll(client_fd, "\",\"xColumn\":\"");
+    sendJsonEscaped(client_fd, graph->x_column);
+    sendAll(client_fd, "\",\"series\":[");
+
+    for (size_t i = 0; i < graph->series_count; i++) {
+        if (i > 0) {
+            sendAll(client_fd, ",");
+        }
+
+        sendAll(client_fd, "{\"name\":\"");
+        sendJsonEscaped(client_fd, graph->series[i].name);
+        sendAll(client_fd, "\"}");
+    }
+
+    sendAll(client_fd, "],\"points\":[");
+    writeGraphPointsJson(client_fd, server, graph);
+    sendAll(client_fd, "]}");
+}
+
+static void writeGraphPointsJson(int client_fd,
+                                 const LoggerWebServer* server,
+                                 const LoggerWebGraph* graph) {
     size_t column_count = totalColumnCount(server);
-    LoggerWebPoint* points = NULL;
-    size_t point_count = 0;
-    size_t point_capacity = 0;
-    int loaded = 1;
-
-    sendAll(client_fd, "<section class=\"graph\"><h2>");
-    sendEscaped(client_fd, graph->title);
-    sendAll(client_fd, "</h2>");
-
     FILE* file = fopen(server->log_path, "r");
     if (!file) {
-        sendAll(client_fd, "<p class=\"empty\">No log file found.</p></section>");
         return;
     }
 
     char** fields = calloc(column_count, sizeof(*fields));
-    if (!fields) {
+    double* values = calloc(graph->series_count, sizeof(*values));
+    int* has_value = calloc(graph->series_count, sizeof(*has_value));
+    if (!fields || !values || !has_value) {
+        free(fields);
+        free(values);
+        free(has_value);
         fclose(file);
-        sendAll(client_fd, "<p class=\"empty\">Unable to load graph data.</p></section>");
         return;
     }
 
+    int wrote_point = 0;
     char line[LOGGER_WEB_MAX_LINE];
     while (fgets(line, sizeof(line), file)) {
         char* newline = strpbrk(line, "\r\n");
@@ -839,214 +956,78 @@ static void writeGraphSection(int client_fd,
         }
 
         splitFields(line, fields, column_count);
-
         const char* x_text = fields[graph->x_index];
-        const char* y_text = fields[graph->y_index];
-        if (!x_text || !*x_text || !y_text || !*y_text) {
+        if (!x_text || !*x_text) {
             continue;
         }
 
-        errno = 0;
-        char* end = NULL;
-        double y_value = strtod(y_text, &end);
-        if (end == y_text || errno == ERANGE) {
+        int any_value = 0;
+        for (size_t i = 0; i < graph->series_count; i++) {
+            has_value[i] = 0;
+            values[i] = 0.0;
+
+            const char* y_text = fields[graph->series[i].index];
+            if (parseDouble(y_text, &values[i])) {
+                has_value[i] = 1;
+                any_value = 1;
+            }
+        }
+
+        if (!any_value) {
             continue;
         }
 
-        while (end && *end && isspace((unsigned char)*end)) {
-            end++;
-        }
-        if (end && *end) {
-            continue;
+        if (wrote_point) {
+            sendAll(client_fd, ",");
         }
 
-        if (!appendGraphPoint(&points,
-                              &point_count,
-                              &point_capacity,
-                              x_text,
-                              y_value)) {
-            loaded = 0;
-            break;
+        sendAll(client_fd, "{\"x\":\"");
+        sendJsonEscaped(client_fd, x_text);
+        sendAll(client_fd, "\",\"values\":[");
+        for (size_t i = 0; i < graph->series_count; i++) {
+            if (i > 0) {
+                sendAll(client_fd, ",");
+            }
+
+            if (has_value[i]) {
+                char number[64];
+                snprintf(number, sizeof(number), "%.17g", values[i]);
+                sendAll(client_fd, number);
+            } else {
+                sendAll(client_fd, "null");
+            }
         }
+        sendAll(client_fd, "]}");
+        wrote_point = 1;
     }
 
     free(fields);
+    free(values);
+    free(has_value);
     fclose(file);
-
-    if (!loaded) {
-        freeGraphPoints(points, point_count);
-        sendAll(client_fd, "<p class=\"empty\">Unable to load graph data.</p></section>");
-        return;
-    }
-
-    if (point_count == 0) {
-        sendAll(client_fd, "<p class=\"empty\">No numeric data found for this graph.</p></section>");
-        free(points);
-        return;
-    }
-
-    sendGraphSvg(client_fd, graph, points, point_count);
-    freeGraphPoints(points, point_count);
-    sendAll(client_fd, "</section>");
 }
 
-static int appendGraphPoint(LoggerWebPoint** points,
-                            size_t* point_count,
-                            size_t* point_capacity,
-                            const char* x_label,
-                            double y_value) {
-    if (*point_count == *point_capacity) {
-        size_t next_capacity = *point_capacity == 0 ? 64 : *point_capacity * 2;
-        LoggerWebPoint* next_points = realloc(*points, next_capacity * sizeof(**points));
-        if (!next_points) {
-            return 0;
-        }
-
-        *points = next_points;
-        *point_capacity = next_capacity;
-    }
-
-    char* label = copyString(x_label);
-    if (!label) {
+static int parseDouble(const char* value, double* out) {
+    if (!value || !*value || !out) {
         return 0;
     }
 
-    (*points)[*point_count].x_label = label;
-    (*points)[*point_count].y_value = y_value;
-    (*point_count)++;
+    errno = 0;
+    char* end = NULL;
+    double parsed = strtod(value, &end);
+    if (end == value || errno == ERANGE) {
+        return 0;
+    }
+
+    while (end && *end && isspace((unsigned char)*end)) {
+        end++;
+    }
+    if (end && *end) {
+        return 0;
+    }
+
+    *out = parsed;
     return 1;
-}
-
-static void freeGraphPoints(LoggerWebPoint* points, size_t point_count) {
-    if (!points) {
-        return;
-    }
-
-    for (size_t i = 0; i < point_count; i++) {
-        free(points[i].x_label);
-    }
-
-    free(points);
-}
-
-static void sendGraphSvg(int client_fd,
-                         const LoggerWebGraph* graph,
-                         const LoggerWebPoint* points,
-                         size_t point_count) {
-    const double width = 720.0;
-    const double height = 340.0;
-    const double left = 56.0;
-    const double right = 24.0;
-    const double top = 24.0;
-    const double bottom = 58.0;
-    const double plot_width = width - left - right;
-    const double plot_height = height - top - bottom;
-
-    double min_y = points[0].y_value;
-    double max_y = points[0].y_value;
-    for (size_t i = 1; i < point_count; i++) {
-        if (points[i].y_value < min_y) {
-            min_y = points[i].y_value;
-        }
-        if (points[i].y_value > max_y) {
-            max_y = points[i].y_value;
-        }
-    }
-
-    if (min_y == max_y) {
-        min_y -= 1.0;
-        max_y += 1.0;
-    }
-
-    sendAll(client_fd,
-            "<svg class=\"chart\" viewBox=\"0 0 720 340\" role=\"img\" aria-label=\"");
-    sendEscaped(client_fd, graph->title);
-    sendAll(client_fd, "\">");
-
-    for (size_t tick = 0; tick <= 4; tick++) {
-        double y = top + ((double)tick * plot_height / 4.0);
-        char line[160];
-        snprintf(line,
-                 sizeof(line),
-                 "<line class=\"grid-line\" x1=\"%.1f\" y1=\"%.1f\" x2=\"%.1f\" y2=\"%.1f\"/>",
-                 left,
-                 y,
-                 width - right,
-                 y);
-        sendAll(client_fd, line);
-    }
-
-    sendAll(client_fd,
-            "<line class=\"axis-line\" x1=\"56\" y1=\"282\" x2=\"696\" y2=\"282\"/>"
-            "<line class=\"axis-line\" x1=\"56\" y1=\"24\" x2=\"56\" y2=\"282\"/>"
-            "<polyline class=\"graph-line\" points=\"");
-
-    for (size_t i = 0; i < point_count; i++) {
-        double x = left + (point_count == 1 ? plot_width / 2.0
-                                           : (double)i * plot_width / (double)(point_count - 1));
-        double y = top + ((max_y - points[i].y_value) * plot_height / (max_y - min_y));
-        char point[64];
-        snprintf(point, sizeof(point), "%.1f,%.1f ", x, y);
-        sendAll(client_fd, point);
-    }
-
-    sendAll(client_fd, "\"/>");
-
-    size_t latest = point_count - 1;
-    double latest_x = left + (point_count == 1 ? plot_width / 2.0
-                                               : (double)latest * plot_width / (double)(point_count - 1));
-    double latest_y = top + ((max_y - points[latest].y_value) * plot_height / (max_y - min_y));
-    char marker[128];
-    snprintf(marker,
-             sizeof(marker),
-             "<circle class=\"latest-point\" cx=\"%.1f\" cy=\"%.1f\" r=\"4\"/>",
-             latest_x,
-             latest_y);
-    sendAll(client_fd, marker);
-
-    sendGraphAxisLabels(client_fd, graph, points, point_count, min_y, max_y);
-    sendAll(client_fd, "</svg>");
-}
-
-static void sendGraphAxisLabels(int client_fd,
-                                const LoggerWebGraph* graph,
-                                const LoggerWebPoint* points,
-                                size_t point_count,
-                                double min_y,
-                                double max_y) {
-    const double left = 56.0;
-    const double right_edge = 696.0;
-    const double top = 24.0;
-    const double plot_height = 258.0;
-
-    for (size_t tick = 0; tick <= 4; tick++) {
-        double y = top + ((double)tick * plot_height / 4.0);
-        double value = max_y - ((max_y - min_y) * (double)tick / 4.0);
-        char label[128];
-        snprintf(label,
-                 sizeof(label),
-                 "<text class=\"y-tick\" x=\"48\" y=\"%.1f\">%.1f</text>",
-                 y + 4.0,
-                 value);
-        sendAll(client_fd, label);
-    }
-
-    sendAll(client_fd, "<text class=\"x-tick\" x=\"56\" y=\"318\">");
-    sendEscaped(client_fd, points[0].x_label);
-    sendAll(client_fd, "</text><text class=\"x-tick end\" x=\"696\" y=\"318\">");
-    sendEscaped(client_fd, points[point_count - 1].x_label);
-    sendAll(client_fd, "</text><text class=\"axis-title\" x=\"");
-
-    char center[32];
-    snprintf(center, sizeof(center), "%.1f", (left + right_edge) / 2.0);
-    sendAll(client_fd, center);
-    sendAll(client_fd, "\" y=\"336\">");
-    sendEscaped(client_fd, graph->x_column);
-    sendAll(client_fd,
-            "</text><text class=\"axis-title y-axis-title\" "
-            "transform=\"translate(14 153) rotate(-90)\">");
-    sendEscaped(client_fd, graph->y_column);
-    sendAll(client_fd, "</text>");
 }
 
 static int loggerWebHasGraphs(const LoggerWebServer* server) {
@@ -1121,6 +1102,26 @@ static void sendCss(int client_fd) {
     }
 
     //Clean up
+    fclose(file);
+}
+
+static void sendGraphScript(int client_fd) {
+    sendAll(client_fd,
+            "HTTP/1.1 200 OK\r\n"
+            "Content-Type: application/javascript; charset=utf-8\r\n"
+            "Cache-Control: no-store\r\n"
+            "Connection: close\r\n\r\n");
+
+    FILE* file = fopen("src/logger/loggerWebGraph.js", "r");
+    if (!file) {
+        return;
+    }
+
+    char buffer[2048];
+    while (fgets(buffer, sizeof(buffer), file)) {
+        sendAll(client_fd, buffer);
+    }
+
     fclose(file);
 }
 

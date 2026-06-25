@@ -26,10 +26,16 @@ int main(int argc, char** argv) {
     static const char* const logger_web_columns[] = {
         "House",
         "Outside",
+        "Attic",
         "Power",
         "Recommendation",
         "Event",
         "Detail"
+    };
+    static const char* const logger_web_temperature_graph_columns[] = {
+        "House",
+        "Attic",
+        "Outside"
     };
 
     //Start the logger web server
@@ -41,6 +47,11 @@ int main(int argc, char** argv) {
         return EXIT_FAILURE;
     }
     loggerWebInsertGraph("House Over Time", "Time", "House");
+    loggerWebInsertGraphSeries("Temperature Overlay",
+                               "Time",
+                               logger_web_temperature_graph_columns,
+                               sizeof(logger_web_temperature_graph_columns) /
+                                   sizeof(logger_web_temperature_graph_columns[0]));
 
 #ifdef _WIN32
     Sleep(3000);
