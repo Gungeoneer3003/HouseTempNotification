@@ -71,11 +71,13 @@ int main(void)
         "Recommendation",
         "Event",
         "Detail"};
-    loggerWebStart(config.log_path,
-                   LOGGER_WEB_PORT,
-                   "House Notification Log",
-                   logger_web_columns,
-                   sizeof(logger_web_columns) / sizeof(logger_web_columns[0]));
+    if (loggerWebStart(config.log_path,
+                       LOGGER_WEB_PORT,
+                       "House Notification Log",
+                       logger_web_columns,
+                       sizeof(logger_web_columns) / sizeof(logger_web_columns[0]))) {
+        loggerWebInsertGraph("House Over Time", "Time", "House");
+    }
 #endif
 
     pthread_t notifid;

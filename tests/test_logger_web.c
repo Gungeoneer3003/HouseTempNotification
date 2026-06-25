@@ -40,6 +40,7 @@ int main(int argc, char** argv) {
                         sizeof(logger_web_columns) / sizeof(logger_web_columns[0]))) {
         return EXIT_FAILURE;
     }
+    loggerWebInsertGraph("House Over Time", "Time", "House");
 
 #ifdef _WIN32
     Sleep(3000);
