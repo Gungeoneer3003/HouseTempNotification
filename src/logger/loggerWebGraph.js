@@ -5,6 +5,7 @@
     const charts = [];
     let currentGraphs = [];
     let currentToday = null;
+    let currentRange = "day";
 
     if (!root) {
         return;
@@ -63,12 +64,13 @@
         }
 
         try {
-            const response = await fetch(graphDataUrl, { cache: "no-store" });
+            const response = await fetch(graphDataRequestUrl(), { cache: "no-store" });
             if (!response.ok) {
                 throw new Error("graph data request failed");
             }
 
             const data = await response.json();
+            currentRange = data.range === "week" ? "week" : "day";
             currentToday = data.today || null;
             currentGraphs = Array.isArray(data.graphs) ? data.graphs : [];
             renderToday();
@@ -77,6 +79,11 @@
             renderToday(null);
             renderError("Graph data unavailable.");
         }
+    }
+
+    function graphDataRequestUrl() {
+        const separator = graphDataUrl.includes("?") ? "&" : "?";
+        return `${graphDataUrl}${separator}range=${encodeURIComponent(currentRange)}`;
     }
 
     function renderToday(value) {
@@ -143,21 +150,31 @@
         const section = document.createElement("section");
         section.className = "graph";
 
+        const header = document.createElement("div");
+        header.className = "graph-header";
+
         const title = document.createElement("h2");
         title.textContent = graph.title || "Graph";
-        section.appendChild(title);
+        header.appendChild(title);
+        header.appendChild(createGraphActions());
+        section.appendChild(header);
 
         const chartWrap = document.createElement("div");
         chartWrap.className = "chart-wrap";
 
-        const canvas = document.createElement("canvas");
-        canvas.className = "chart";
-        canvas.setAttribute("role", "img");
-        canvas.setAttribute("aria-label", graph.title || "Graph");
-        chartWrap.appendChild(canvas);
-        section.appendChild(chartWrap);
+        if (Array.isArray(graph.points) && graph.points.length > 0) {
+            const canvas = document.createElement("canvas");
+            canvas.className = "chart";
+            canvas.setAttribute("role", "img");
+            canvas.setAttribute("aria-label", graph.title || "Graph");
+            chartWrap.appendChild(canvas);
+            section.appendChild(chartWrap);
 
-        createChart(canvas, graph);
+            createChart(canvas, graph);
+        } else {
+            chartWrap.appendChild(emptyMessage("No data for selected range."));
+            section.appendChild(chartWrap);
+        }
 
         const stats = createStatsBox(graph);
         if (stats) {
@@ -165,6 +182,38 @@
         }
 
         return section;
+    }
+
+    function createGraphActions() {
+        const actions = document.createElement("div");
+        actions.className = "graph-actions";
+
+        actions.appendChild(actionButton("Refresh", () => {
+            loadGraphs();
+        }));
+        actions.appendChild(rangeButton("day", "Show Day"));
+        actions.appendChild(rangeButton("week", "Show Week"));
+
+        return actions;
+    }
+
+    function rangeButton(range, label) {
+        return actionButton(label, () => {
+            currentRange = range;
+            loadGraphs();
+        }, currentRange === range);
+    }
+
+    function actionButton(label, onClick, active) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = active ? "graph-button is-active" : "graph-button";
+        button.textContent = label;
+        if (typeof active === "boolean") {
+            button.setAttribute("aria-pressed", active ? "true" : "false");
+        }
+        button.addEventListener("click", onClick);
+        return button;
     }
 
     function createChart(canvas, graph) {
@@ -283,8 +332,8 @@
         const title = document.createElement("div");
         title.className = "stats-title";
         title.textContent = stats.windowStart && stats.windowEnd
-            ? `Last 24 hours (${shortDate(stats.windowStart)} - ${shortDate(stats.windowEnd)})`
-            : "Last 24 hours";
+            ? `Today min / max (${shortDateTime(stats.windowStart)} - ${shortTime(stats.windowEnd)})`
+            : "Today min / max";
         box.appendChild(title);
 
         const grid = document.createElement("div");
@@ -333,7 +382,20 @@
     function renderError(message) {
         destroyCharts();
         root.innerHTML = "";
-        root.appendChild(emptyMessage(message));
+        const section = document.createElement("section");
+        section.className = "graph";
+
+        const header = document.createElement("div");
+        header.className = "graph-header";
+
+        const title = document.createElement("h2");
+        title.textContent = "Graphs";
+        header.appendChild(title);
+        header.appendChild(createGraphActions());
+
+        section.appendChild(header);
+        section.appendChild(emptyMessage(message));
+        root.appendChild(section);
     }
 
     function axisTitle(graph) {
@@ -357,6 +419,12 @@
 
         const match = label.match(/^(\d{4}-\d{2}-\d{2})/);
         return match ? match[1] : label;
+    }
+
+    function shortDateTime(label) {
+        const date = shortDate(label);
+        const time = shortTime(label);
+        return date && time ? `${date} ${time}` : label;
     }
 
     function colorForSeries(index) {
@@ -383,5 +451,4 @@
     }
 
     loadGraphs();
-    setInterval(loadGraphs, 30000);
 }());

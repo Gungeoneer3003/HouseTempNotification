@@ -152,6 +152,11 @@ typedef struct {
     size_t today_column_count;
 } LoggerWebServer;
 
+typedef enum {
+    LOGGER_WEB_GRAPH_RANGE_DAY,
+    LOGGER_WEB_GRAPH_RANGE_WEEK
+} LoggerWebGraphRange;
+
 static LoggerWebServer* active_server = NULL;
 static pthread_mutex_t active_server_mutex = PTHREAD_MUTEX_INITIALIZER;
 
@@ -177,6 +182,10 @@ static void copyRootDirectory(const LoggerWebServer* server,
                               char* output,
                               size_t output_size);
 static int rootDirectoryEquals(const LoggerWebServer* server, const char* subdirectory);
+static LoggerWebGraphRange parseGraphRange(const char* request);
+static const char* graphRangeName(LoggerWebGraphRange range);
+static time_t graphRangeStart(LoggerWebGraphRange range, time_t now);
+static int graphStatsWindow(time_t now, time_t* window_start, time_t* window_end);
 static int parseRequestPath(const char* request, char* path, size_t path_size);
 static int pathEquals(const char* path, const char* expected);
 static char* copyString(const char* value);
@@ -185,7 +194,9 @@ static void handleClient(int client_fd, const LoggerWebServer* server);
 static void sendRoot(int client_fd, const LoggerWebServer* server);
 static void sendIndex(int client_fd, const LoggerWebServer* server);
 static void sendGraphs(int client_fd, const LoggerWebServer* server);
-static void sendGraphData(int client_fd, const LoggerWebServer* server);
+static void sendGraphData(int client_fd,
+                          const LoggerWebServer* server,
+                          LoggerWebGraphRange range);
 static void sendRawLog(int client_fd, const char* log_path);
 static void sendNotFound(int client_fd);
 static void sendBytes(int fd, const char* data, size_t length);
@@ -203,16 +214,22 @@ static void writeLogRows(int client_fd, const LoggerWebServer* server);
 static void writeLogRow(int client_fd, char* line, const LoggerWebServer* server);
 static void writeGraphJson(int client_fd,
                            const LoggerWebServer* server,
-                           const LoggerWebGraph* graph);
+                           const LoggerWebGraph* graph,
+                           time_t range_start,
+                           time_t range_end);
 static void writeGraphPointsJson(int client_fd,
                                  const LoggerWebServer* server,
-                                 const LoggerWebGraph* graph);
+                                 const LoggerWebGraph* graph,
+                                 time_t range_start,
+                                 time_t range_end);
 static void writeGraphStatsJson(int client_fd,
                                 const LoggerWebServer* server,
                                 const LoggerWebGraph* graph);
 static void writeGraphEventsJson(int client_fd,
                                  const LoggerWebServer* server,
-                                 const LoggerWebGraph* graph);
+                                 const LoggerWebGraph* graph,
+                                 time_t range_start,
+                                 time_t range_end);
 static void writeTodayJson(int client_fd, const LoggerWebServer* server);
 static int parseDouble(const char* value, double* out);
 static int parseUnixTime(const char* value, time_t* out);
@@ -750,6 +767,86 @@ static int rootDirectoryEquals(const LoggerWebServer* server, const char* subdir
     return stringEqualsIgnoreCase(root_directory, subdirectory);
 }
 
+static LoggerWebGraphRange parseGraphRange(const char* request) {
+    const char* query = request ? strchr(request, '?') : NULL;
+    if (!query) {
+        return LOGGER_WEB_GRAPH_RANGE_DAY;
+    }
+
+    const char* query_end = strchr(query, ' ');
+    if (!query_end) {
+        query_end = query + strlen(query);
+    }
+
+    const char range_prefix[] = "range=";
+    const size_t range_prefix_length = sizeof(range_prefix) - 1;
+    const char* cursor = query + 1;
+    while (cursor < query_end) {
+        const char* param_end = cursor;
+        while (param_end < query_end && *param_end != '&') {
+            param_end++;
+        }
+
+        size_t param_length = (size_t)(param_end - cursor);
+        if (param_length >= range_prefix_length &&
+            strncmp(cursor, range_prefix, range_prefix_length) == 0) {
+            const char* value = cursor + range_prefix_length;
+            size_t value_length = param_length - range_prefix_length;
+            if (value_length == 4 && strncmp(value, "week", 4) == 0) {
+                return LOGGER_WEB_GRAPH_RANGE_WEEK;
+            }
+
+            return LOGGER_WEB_GRAPH_RANGE_DAY;
+        }
+
+        cursor = param_end;
+        if (cursor < query_end && *cursor == '&') {
+            cursor++;
+        }
+    }
+
+    return LOGGER_WEB_GRAPH_RANGE_DAY;
+}
+
+static const char* graphRangeName(LoggerWebGraphRange range) {
+    return range == LOGGER_WEB_GRAPH_RANGE_WEEK ? "week" : "day";
+}
+
+static time_t graphRangeStart(LoggerWebGraphRange range, time_t now) {
+    time_t day_seconds = (time_t)24 * 60 * 60;
+    time_t span_seconds = range == LOGGER_WEB_GRAPH_RANGE_WEEK
+        ? day_seconds * 7
+        : day_seconds;
+
+    return now - span_seconds;
+}
+
+static int graphStatsWindow(time_t now, time_t* window_start, time_t* window_end) {
+    if (!window_start || !window_end) {
+        return 0;
+    }
+
+    struct tm local_now;
+    if (!logLocaltime(&now, &local_now)) {
+        return 0;
+    }
+
+    local_now.tm_hour = 0;
+    local_now.tm_min = 0;
+    local_now.tm_sec = 0;
+    local_now.tm_isdst = -1;
+
+    time_t today_start = mktime(&local_now);
+    if (today_start == (time_t)-1) {
+        return 0;
+    }
+
+    time_t last_24_hours = now - (time_t)24 * 60 * 60;
+    *window_start = last_24_hours > today_start ? last_24_hours : today_start;
+    *window_end = now;
+    return 1;
+}
+
 static int parseRequestPath(const char* request, char* path, size_t path_size) {
     if (!request || !path || path_size == 0 || strncmp(request, "GET ", 4) != 0) {
         return 0;
@@ -849,7 +946,7 @@ static void handleClient(int client_fd, const LoggerWebServer* server) {
     } else if (pathEquals(path, "/graphs/data") ||
                (rootDirectoryEquals(server, LOGGER_WEB_ROOT_GRAPHS) &&
                 pathEquals(path, "/data"))) {
-        sendGraphData(client_fd, server);
+        sendGraphData(client_fd, server, parseGraphRange(request));
     } else if (pathEquals(path, "/graphs")) {
         sendGraphs(client_fd, server);
     } else if (pathEquals(path, "/raw")) {
@@ -931,13 +1028,28 @@ static void sendGraphs(int client_fd, const LoggerWebServer* server) {
             "</html>");
 }
 
-static void sendGraphData(int client_fd, const LoggerWebServer* server) {
+static void sendGraphData(int client_fd,
+                          const LoggerWebServer* server,
+                          LoggerWebGraphRange range) {
+    time_t range_end = time(NULL);
+    time_t range_start = graphRangeStart(range, range_end);
+    char range_start_label[32];
+    char range_end_label[32];
+    formatUnixLabel(range_start, range_start_label, sizeof(range_start_label));
+    formatUnixLabel(range_end, range_end_label, sizeof(range_end_label));
+
     sendAll(client_fd,
             "HTTP/1.1 200 OK\r\n"
             "Content-Type: application/json; charset=utf-8\r\n"
             "Cache-Control: no-store\r\n"
             "Connection: close\r\n\r\n"
-            "{\"today\":");
+            "{\"range\":\"");
+    sendAll(client_fd, graphRangeName(range));
+    sendAll(client_fd, "\",\"rangeStart\":\"");
+    sendJsonEscaped(client_fd, range_start_label);
+    sendAll(client_fd, "\",\"rangeEnd\":\"");
+    sendJsonEscaped(client_fd, range_end_label);
+    sendAll(client_fd, "\",\"today\":");
 
     pthread_mutex_lock(&active_server_mutex);
     writeTodayJson(client_fd, server);
@@ -947,7 +1059,7 @@ static void sendGraphData(int client_fd, const LoggerWebServer* server) {
             sendAll(client_fd, ",");
         }
 
-        writeGraphJson(client_fd, server, &server->graphs[i]);
+        writeGraphJson(client_fd, server, &server->graphs[i], range_start, range_end);
     }
     pthread_mutex_unlock(&active_server_mutex);
 
@@ -1326,7 +1438,9 @@ static void writeLogRow(int client_fd, char* line, const LoggerWebServer* server
 
 static void writeGraphJson(int client_fd,
                            const LoggerWebServer* server,
-                           const LoggerWebGraph* graph) {
+                           const LoggerWebGraph* graph,
+                           time_t range_start,
+                           time_t range_end) {
     sendAll(client_fd, "{\"title\":\"");
     sendJsonEscaped(client_fd, graph->title);
     sendAll(client_fd, "\",\"xColumn\":\"");
@@ -1344,17 +1458,19 @@ static void writeGraphJson(int client_fd,
     }
 
     sendAll(client_fd, "],\"points\":[");
-    writeGraphPointsJson(client_fd, server, graph);
+    writeGraphPointsJson(client_fd, server, graph, range_start, range_end);
     sendAll(client_fd, "],\"stats\":");
     writeGraphStatsJson(client_fd, server, graph);
     sendAll(client_fd, ",\"events\":[");
-    writeGraphEventsJson(client_fd, server, graph);
+    writeGraphEventsJson(client_fd, server, graph, range_start, range_end);
     sendAll(client_fd, "]}");
 }
 
 static void writeGraphPointsJson(int client_fd,
                                  const LoggerWebServer* server,
-                                 const LoggerWebGraph* graph) {
+                                 const LoggerWebGraph* graph,
+                                 time_t range_start,
+                                 time_t range_end) {
     size_t column_count = totalColumnCount(server);
     FILE* file = fopen(server->log_path, "r");
     if (!file) {
@@ -1381,6 +1497,12 @@ static void writeGraphPointsJson(int client_fd,
         }
 
         splitFields(line, fields, column_count);
+        time_t logged_at = 0;
+        if (!parseUnixTime(fields[0], &logged_at) ||
+            logged_at < range_start || logged_at > range_end) {
+            continue;
+        }
+
         const char* x_text = fields[graph->x_index];
         if (!x_text || !*x_text) {
             continue;
@@ -1440,18 +1562,12 @@ static void writeGraphStatsJson(int client_fd,
         return;
     }
 
-    time_t now = time(NULL);
-    struct tm local_now;
-    if (!logLocaltime(&now, &local_now)) {
+    time_t window_start = 0;
+    time_t window_end = 0;
+    if (!graphStatsWindow(time(NULL), &window_start, &window_end)) {
         sendAll(client_fd, "null");
         return;
     }
-
-    local_now.tm_hour = 0;
-    local_now.tm_min = 0;
-    local_now.tm_sec = 0;
-    time_t window_end = mktime(&local_now);
-    time_t window_start = window_end - (time_t)24 * 60 * 60;
 
     double* mins = calloc(graph->series_count, sizeof(*mins));
     double* maxes = calloc(graph->series_count, sizeof(*maxes));
@@ -1478,7 +1594,7 @@ static void writeGraphStatsJson(int client_fd,
             splitFields(line, fields, column_count);
             time_t logged_at = 0;
             if (!parseUnixTime(fields[0], &logged_at) ||
-                logged_at < window_start || logged_at >= window_end) {
+                logged_at < window_start || logged_at > window_end) {
                 continue;
             }
 
@@ -1552,7 +1668,9 @@ static void writeGraphStatsJson(int client_fd,
 
 static void writeGraphEventsJson(int client_fd,
                                  const LoggerWebServer* server,
-                                 const LoggerWebGraph* graph) {
+                                 const LoggerWebGraph* graph,
+                                 time_t range_start,
+                                 time_t range_end) {
     if (graph->vert_count == 0) {
         return;
     }
@@ -1578,6 +1696,12 @@ static void writeGraphEventsJson(int client_fd,
         }
 
         splitFields(line, fields, column_count);
+        time_t logged_at = 0;
+        if (!parseUnixTime(fields[0], &logged_at) ||
+            logged_at < range_start || logged_at > range_end) {
+            continue;
+        }
+
         const char* x_text = fields[graph->x_index];
         if (!x_text || !*x_text) {
             continue;
