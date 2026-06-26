@@ -21,6 +21,11 @@ int loggerWebShowVerts(const char* graph_title,
                        const char* column,
                        const char* value,
                        const char* color);
+int loggerWebShowSpan(const char* graph_title,
+                      const char* column,
+                      const char* start_value,
+                      const char* end_value,
+                      const char* color);
 int loggerWebShowToday(const char* const* columns,
                        size_t column_count);
 

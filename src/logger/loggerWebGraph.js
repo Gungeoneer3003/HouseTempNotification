@@ -21,7 +21,8 @@
         id: "loggerEventMarkers",
         beforeDatasetsDraw(chart, args, options) {
             const events = options && Array.isArray(options.events) ? options.events : [];
-            if (events.length === 0) {
+            const spans = options && Array.isArray(options.spans) ? options.spans : [];
+            if (events.length === 0 && spans.length === 0) {
                 return;
             }
 
@@ -34,6 +35,39 @@
             const labels = chart.data.labels || [];
             const ctx = chart.ctx;
             ctx.save();
+            spans.forEach((span) => {
+                const startIndex = labels.indexOf(span.start);
+                const endIndex = labels.indexOf(span.end);
+                if (startIndex < 0 || endIndex < 0 || endIndex <= startIndex) {
+                    return;
+                }
+
+                const startX = xScale.getPixelForValue(startIndex);
+                const endX = xScale.getPixelForValue(endIndex);
+                if (!Number.isFinite(startX) || !Number.isFinite(endX)) {
+                    return;
+                }
+
+                const left = Math.min(startX, endX);
+                const width = Math.abs(endX - startX);
+                if (width <= 0) {
+                    return;
+                }
+
+                const color = span.color || "#f59e0b";
+                ctx.fillStyle = transparentColor(color, 0.14);
+                ctx.fillRect(left, area.top, width, area.bottom - area.top);
+
+                const label = span.duration || span.label || "";
+                if (label && width >= 34) {
+                    ctx.fillStyle = color;
+                    ctx.font = "600 12px system-ui, -apple-system, Segoe UI, sans-serif";
+                    ctx.textAlign = "center";
+                    ctx.textBaseline = "top";
+                    ctx.fillText(label, left + width / 2, area.top + 8);
+                }
+            });
+
             events.forEach((event) => {
                 const index = labels.indexOf(event.x);
                 if (index < 0) {
@@ -261,7 +295,8 @@
                 },
                 plugins: {
                     loggerEventMarkers: {
-                        events: Array.isArray(graph.events) ? graph.events : []
+                        events: Array.isArray(graph.events) ? graph.events : [],
+                        spans: Array.isArray(graph.spans) ? graph.spans : []
                     },
                     legend: {
                         labels: {
@@ -331,9 +366,7 @@
 
         const title = document.createElement("div");
         title.className = "stats-title";
-        title.textContent = stats.windowStart && stats.windowEnd
-            ? `Today min / max (${shortDateTime(stats.windowStart)} - ${shortTime(stats.windowEnd)})`
-            : "Today min / max";
+        title.textContent = "Today's Stats";
         box.appendChild(title);
 
         const grid = document.createElement("div");

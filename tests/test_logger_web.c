@@ -52,6 +52,7 @@ int main(int argc, char** argv) {
                                logger_web_temperature_graph_columns,
                                sizeof(logger_web_temperature_graph_columns) /
                                    sizeof(logger_web_temperature_graph_columns[0]));
+    loggerWebShowSpan("Temperature Overlay", "Event", "open notif", "close notif", "#f59e0b");
     loggerWebSetRootDirectory("graphs");
 
 #ifdef _WIN32

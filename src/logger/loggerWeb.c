@@ -80,6 +80,21 @@ int loggerWebShowVerts(const char* graph_title,
     return 0;
 }
 
+int loggerWebShowSpan(const char* graph_title,
+                      const char* column,
+                      const char* start_value,
+                      const char* end_value,
+                      const char* color) {
+    (void)graph_title;
+    (void)column;
+    (void)start_value;
+    (void)end_value;
+    (void)color;
+
+    fprintf(stderr, "Logger web graphs are not supported on Windows\n");
+    return 0;
+}
+
 int loggerWebShowToday(const char* const* columns,
                        size_t column_count) {
     (void)columns;
@@ -122,6 +137,14 @@ typedef struct {
 } LoggerWebVert;
 
 typedef struct {
+    char* column;
+    char* start_value;
+    char* end_value;
+    char* color;
+    size_t column_index;
+} LoggerWebSpan;
+
+typedef struct {
     char* name;
     size_t index;
 } LoggerWebTodayColumn;
@@ -134,6 +157,9 @@ typedef struct {
     LoggerWebVert* verts;
     size_t vert_count;
     size_t vert_capacity;
+    LoggerWebSpan* spans;
+    size_t span_count;
+    size_t span_capacity;
 } LoggerWebGraph;
 
 typedef struct {
@@ -174,6 +200,12 @@ static int appendGraphVert(LoggerWebGraph* graph,
                            size_t column_index,
                            const char* value,
                            const char* color);
+static int appendGraphSpan(LoggerWebGraph* graph,
+                           const char* column,
+                           size_t column_index,
+                           const char* start_value,
+                           const char* end_value,
+                           const char* color);
 static int normalizeRootDirectory(const char* subdirectory,
                                   char* output,
                                   size_t output_size);
@@ -197,7 +229,7 @@ static void sendGraphs(int client_fd, const LoggerWebServer* server);
 static void sendGraphData(int client_fd,
                           const LoggerWebServer* server,
                           LoggerWebGraphRange range);
-static void sendRawLog(int client_fd, const char* log_path);
+static void sendRawLog(int client_fd, const LoggerWebServer* server);
 static void sendNotFound(int client_fd);
 static void sendBytes(int fd, const char* data, size_t length);
 static void sendAll(int fd, const char* data);
@@ -209,6 +241,7 @@ static void sendNav(int client_fd, const LoggerWebServer* server);
 static void sendTableHeaders(int client_fd, const LoggerWebServer* server);
 static void sendColspanMessage(int client_fd, size_t column_count, const char* message);
 static size_t totalColumnCount(const LoggerWebServer* server);
+static size_t displayedColumnCount(const LoggerWebServer* server);
 static int splitFields(char* line, char** fields, size_t column_count);
 static void writeLogRows(int client_fd, const LoggerWebServer* server);
 static void writeLogRow(int client_fd, char* line, const LoggerWebServer* server);
@@ -230,11 +263,17 @@ static void writeGraphEventsJson(int client_fd,
                                  const LoggerWebGraph* graph,
                                  time_t range_start,
                                  time_t range_end);
+static void writeGraphSpansJson(int client_fd,
+                                const LoggerWebServer* server,
+                                const LoggerWebGraph* graph,
+                                time_t range_start,
+                                time_t range_end);
 static void writeTodayJson(int client_fd, const LoggerWebServer* server);
 static int parseDouble(const char* value, double* out);
 static int parseUnixTime(const char* value, time_t* out);
 static int logLocaltime(const time_t* value, struct tm* out);
 static void formatUnixLabel(time_t value, char* buffer, size_t buffer_size);
+static void formatDuration(time_t seconds, char* buffer, size_t buffer_size);
 static int loggerWebHasGraphs(const LoggerWebServer* server);
 static int resolveColumnIndex(const LoggerWebServer* server,
                               const char* column,
@@ -484,6 +523,40 @@ int loggerWebShowVerts(const char* graph_title,
     return ok;
 }
 
+int loggerWebShowSpan(const char* graph_title,
+                      const char* column,
+                      const char* start_value,
+                      const char* end_value,
+                      const char* color) {
+    if (!graph_title || !*graph_title || !column || !*column ||
+        !start_value || !*start_value || !end_value || !*end_value) {
+        return 0;
+    }
+
+    pthread_mutex_lock(&active_server_mutex);
+    LoggerWebServer* server = active_server;
+    if (!server) {
+        pthread_mutex_unlock(&active_server_mutex);
+        return 0;
+    }
+
+    LoggerWebGraph* graph = findGraphByTitle(server, graph_title);
+    size_t column_index = 0;
+    if (!graph || !resolveColumnIndex(server, column, &column_index)) {
+        pthread_mutex_unlock(&active_server_mutex);
+        return 0;
+    }
+
+    int ok = appendGraphSpan(graph,
+                             column,
+                             column_index,
+                             start_value,
+                             end_value,
+                             color && *color ? color : "#f59e0b");
+    pthread_mutex_unlock(&active_server_mutex);
+    return ok;
+}
+
 int loggerWebShowToday(const char* const* columns,
                        size_t column_count) {
     if (column_count > 0 && !columns) {
@@ -641,6 +714,17 @@ static void freeGraph(LoggerWebGraph* graph) {
     }
 
     free(graph->verts);
+
+    if (graph->spans) {
+        for (size_t i = 0; i < graph->span_count; i++) {
+            free(graph->spans[i].column);
+            free(graph->spans[i].start_value);
+            free(graph->spans[i].end_value);
+            free(graph->spans[i].color);
+        }
+    }
+
+    free(graph->spans);
     memset(graph, 0, sizeof(*graph));
 }
 
@@ -704,6 +788,45 @@ static int appendGraphVert(LoggerWebGraph* graph,
     }
 
     graph->vert_count++;
+    return 1;
+}
+
+static int appendGraphSpan(LoggerWebGraph* graph,
+                           const char* column,
+                           size_t column_index,
+                           const char* start_value,
+                           const char* end_value,
+                           const char* color) {
+    if (graph->span_count == graph->span_capacity) {
+        size_t next_capacity = graph->span_capacity == 0 ? 2 : graph->span_capacity * 2;
+        LoggerWebSpan* next_spans = realloc(graph->spans,
+                                            next_capacity * sizeof(*graph->spans));
+        if (!next_spans) {
+            return 0;
+        }
+
+        graph->spans = next_spans;
+        graph->span_capacity = next_capacity;
+    }
+
+    LoggerWebSpan* span = &graph->spans[graph->span_count];
+    memset(span, 0, sizeof(*span));
+    span->column = copyString(column);
+    span->start_value = copyString(start_value);
+    span->end_value = copyString(end_value);
+    span->color = copyString(color);
+    span->column_index = column_index;
+
+    if (!span->column || !span->start_value || !span->end_value || !span->color) {
+        free(span->column);
+        free(span->start_value);
+        free(span->end_value);
+        free(span->color);
+        memset(span, 0, sizeof(*span));
+        return 0;
+    }
+
+    graph->span_count++;
     return 1;
 }
 
@@ -950,7 +1073,7 @@ static void handleClient(int client_fd, const LoggerWebServer* server) {
     } else if (pathEquals(path, "/graphs")) {
         sendGraphs(client_fd, server);
     } else if (pathEquals(path, "/raw")) {
-        sendRawLog(client_fd, server->log_path);
+        sendRawLog(client_fd, server);
     } else if (pathEquals(path, "/style.css")) {
         sendCss(client_fd);
     } else if (pathEquals(path, "/loggerWebGraph.js")) {
@@ -1066,29 +1189,47 @@ static void sendGraphData(int client_fd,
     sendAll(client_fd, "]}");
 }
 
-//Send the raw log file as plain text
-static void sendRawLog(int client_fd, const char* log_path) {
+//Send the raw log file inside a small HTML shell so the normal navigation is available.
+static void sendRawLog(int client_fd, const LoggerWebServer* server) {
     sendAll(client_fd,
             "HTTP/1.1 200 OK\r\n"
-            "Content-Type: text/plain; charset=utf-8\r\n"
+            "Content-Type: text/html; charset=utf-8\r\n"
             "Cache-Control: no-store\r\n"
-            "Connection: close\r\n\r\n");
+            "Connection: close\r\n\r\n"
+            "<!doctype html>"
+            "<html>"
+            "<head>"
+            "<meta charset=\"utf-8\">"
+            "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+            "<title>");
+    sendEscaped(client_fd, server->title);
+    sendAll(client_fd,
+            " - Raw Log</title>"
+            "<link rel=\"stylesheet\" href=\"/style.css\">"
+            "</head>"
+            "<body>"
+            "<h1>");
+    sendEscaped(client_fd, server->title);
+    sendAll(client_fd, " Raw Log</h1>");
+    sendNav(client_fd, server);
+    sendAll(client_fd, "<pre class=\"raw-log\">");
 
     //Open the log file and send its contents to the client
-    FILE* file = fopen(log_path, "r");
+    FILE* file = fopen(server->log_path, "r");
     if (!file) {
-        sendAll(client_fd, "");
+        sendAll(client_fd, "</pre></body></html>");
         return;
     }
 
     //Read the log file line by line and send it to the client
     char buffer[2048];
     while (fgets(buffer, sizeof(buffer), file)) {
-        sendAll(client_fd, buffer);
+        sendEscaped(client_fd, buffer);
     }
 
     //Clean up
     fclose(file);
+    sendAll(client_fd, "</pre></body></html>");
 }
 
 //Send a 404 Not Found response to the client
@@ -1274,8 +1415,7 @@ static void sendNav(int client_fd, const LoggerWebServer* server) {
 
 //Send the table header row with the column headers
 static void sendTableHeaders(int client_fd, const LoggerWebServer* server) {
-    //Note: Need to remove the Unix header at some point
-    sendAll(client_fd, "<th>Unix</th>\n                <th>Time</th>");
+    sendAll(client_fd, "<th>Time</th>");
 
     for (size_t i = 0; i < server->column_header_count; i++) {
         sendAll(client_fd, "\n                <th>");
@@ -1298,6 +1438,10 @@ static void sendColspanMessage(int client_fd, size_t column_count, const char* m
 
 static size_t totalColumnCount(const LoggerWebServer* server) {
     return server->column_header_count + 2;
+}
+
+static size_t displayedColumnCount(const LoggerWebServer* server) {
+    return totalColumnCount(server) - 1;
 }
 
 static int splitFields(char* line, char** fields, size_t column_count) {
@@ -1330,12 +1474,12 @@ static int splitFields(char* line, char** fields, size_t column_count) {
 
 //Read the log file and write each line as a row in the log table, starting with the most recent entries
 static void writeLogRows(int client_fd, const LoggerWebServer* server) {
-    size_t column_count = totalColumnCount(server);
+    size_t display_column_count = displayedColumnCount(server);
     
     //Open the log file for reading
     FILE* file = fopen(server->log_path, "r");
     if (!file) {
-        sendColspanMessage(client_fd, column_count, "No log file found.");
+        sendColspanMessage(client_fd, display_column_count, "No log file found.");
         return;
     }
 
@@ -1363,7 +1507,7 @@ static void writeLogRows(int client_fd, const LoggerWebServer* server) {
                 }
                 free(rows);
                 fclose(file);
-                sendColspanMessage(client_fd, column_count, "Unable to load log rows.");
+                sendColspanMessage(client_fd, display_column_count, "Unable to load log rows.");
                 return;
             }
 
@@ -1384,7 +1528,7 @@ static void writeLogRows(int client_fd, const LoggerWebServer* server) {
             //Clean up and send an error message to the client
             free(rows);
             fclose(file);
-            sendColspanMessage(client_fd, column_count, "Unable to load log rows.");
+            sendColspanMessage(client_fd, display_column_count, "Unable to load log rows.");
             return;
         }
 
@@ -1397,7 +1541,7 @@ static void writeLogRows(int client_fd, const LoggerWebServer* server) {
 
     //If the log file is empty, send a message to the client and clean up
     if (row_count == 0) {
-        sendColspanMessage(client_fd, column_count, "Log file is empty.");
+        sendColspanMessage(client_fd, display_column_count, "Log file is empty.");
         free(rows);
         return;
     }
@@ -1413,11 +1557,12 @@ static void writeLogRows(int client_fd, const LoggerWebServer* server) {
 //Parse a log line into its fields and write it as a row in the log table, with HTML escaping for special characters
 static void writeLogRow(int client_fd, char* line, const LoggerWebServer* server) {
     size_t column_count = totalColumnCount(server);
+    size_t display_column_count = displayedColumnCount(server);
 
     //Split the line into fields based on the '|' delimiter, up to the number of columns expected
     char** fields = calloc(column_count, sizeof(*fields));
     if (!fields) {
-        sendColspanMessage(client_fd, column_count, "Unable to load log row.");
+        sendColspanMessage(client_fd, display_column_count, "Unable to load log row.");
         return;
     }
 
@@ -1425,7 +1570,7 @@ static void writeLogRow(int client_fd, char* line, const LoggerWebServer* server
 
     //Send the fields as a row in the log table, with HTML escaping for special characters
     sendAll(client_fd, "<tr>");
-    for (size_t i = 0; i < column_count; i++) {
+    for (size_t i = 1; i < column_count; i++) {
         sendAll(client_fd, "<td>");
         sendEscaped(client_fd, fields[i] ? fields[i] : "");
         sendAll(client_fd, "</td>");
@@ -1463,6 +1608,8 @@ static void writeGraphJson(int client_fd,
     writeGraphStatsJson(client_fd, server, graph);
     sendAll(client_fd, ",\"events\":[");
     writeGraphEventsJson(client_fd, server, graph, range_start, range_end);
+    sendAll(client_fd, "],\"spans\":[");
+    writeGraphSpansJson(client_fd, server, graph, range_start, range_end);
     sendAll(client_fd, "]}");
 }
 
@@ -1732,6 +1879,100 @@ static void writeGraphEventsJson(int client_fd,
     fclose(file);
 }
 
+static void writeGraphSpansJson(int client_fd,
+                                const LoggerWebServer* server,
+                                const LoggerWebGraph* graph,
+                                time_t range_start,
+                                time_t range_end) {
+    if (graph->span_count == 0) {
+        return;
+    }
+
+    size_t column_count = totalColumnCount(server);
+    int wrote_span = 0;
+
+    for (size_t span_index = 0; span_index < graph->span_count; span_index++) {
+        const LoggerWebSpan* span = &graph->spans[span_index];
+        FILE* file = fopen(server->log_path, "r");
+        if (!file) {
+            return;
+        }
+
+        char** fields = calloc(column_count, sizeof(*fields));
+        if (!fields) {
+            fclose(file);
+            return;
+        }
+
+        int has_start = 0;
+        time_t start_time = 0;
+        char start_x[256] = "";
+        char line[LOGGER_WEB_MAX_LINE];
+        while (fgets(line, sizeof(line), file)) {
+            char* newline = strpbrk(line, "\r\n");
+            if (newline) {
+                *newline = '\0';
+            }
+
+            splitFields(line, fields, column_count);
+            time_t logged_at = 0;
+            if (!parseUnixTime(fields[0], &logged_at) ||
+                logged_at < range_start || logged_at > range_end) {
+                continue;
+            }
+
+            const char* x_text = fields[graph->x_index];
+            const char* field = fields[span->column_index];
+            if (!x_text || !*x_text || !field) {
+                continue;
+            }
+
+            if (strcmp(field, span->start_value) == 0) {
+                if (!has_start) {
+                    has_start = 1;
+                    start_time = logged_at;
+                    snprintf(start_x, sizeof(start_x), "%s", x_text);
+                }
+                continue;
+            }
+
+            if (strcmp(field, span->end_value) == 0 && has_start && logged_at >= start_time) {
+                time_t duration_seconds = logged_at - start_time;
+                char duration[64];
+                char seconds_text[64];
+                formatDuration(duration_seconds, duration, sizeof(duration));
+                snprintf(seconds_text, sizeof(seconds_text), "%lld", (long long)duration_seconds);
+
+                if (wrote_span) {
+                    sendAll(client_fd, ",");
+                }
+
+                sendAll(client_fd, "{\"start\":\"");
+                sendJsonEscaped(client_fd, start_x);
+                sendAll(client_fd, "\",\"end\":\"");
+                sendJsonEscaped(client_fd, x_text);
+                sendAll(client_fd, "\",\"label\":\"");
+                sendJsonEscaped(client_fd, duration);
+                sendAll(client_fd, "\",\"durationSeconds\":");
+                sendAll(client_fd, seconds_text);
+                sendAll(client_fd, ",\"duration\":\"");
+                sendJsonEscaped(client_fd, duration);
+                sendAll(client_fd, "\",\"color\":\"");
+                sendJsonEscaped(client_fd, span->color);
+                sendAll(client_fd, "\"}");
+
+                wrote_span = 1;
+                has_start = 0;
+                start_time = 0;
+                start_x[0] = '\0';
+            }
+        }
+
+        free(fields);
+        fclose(file);
+    }
+}
+
 static void writeTodayJson(int client_fd, const LoggerWebServer* server) {
     if (server->today_column_count == 0) {
         sendAll(client_fd, "null");
@@ -1867,6 +2108,32 @@ static void formatUnixLabel(time_t value, char* buffer, size_t buffer_size) {
         strftime(buffer, buffer_size, "%Y-%m-%d %H:%M:%S", &local);
     } else if (buffer_size > 0) {
         buffer[0] = '\0';
+    }
+}
+
+static void formatDuration(time_t seconds, char* buffer, size_t buffer_size) {
+    if (!buffer || buffer_size == 0) {
+        return;
+    }
+
+    if (seconds < 0) {
+        seconds = 0;
+    }
+
+    long long total_seconds = (long long)seconds;
+    long long days = total_seconds / (24LL * 60LL * 60LL);
+    long long hours = (total_seconds / (60LL * 60LL)) % 24LL;
+    long long minutes = (total_seconds / 60LL) % 60LL;
+    long long remaining_seconds = total_seconds % 60LL;
+
+    if (days > 0) {
+        snprintf(buffer, buffer_size, "%lldd %lldh %lldm", days, hours, minutes);
+    } else if (hours > 0) {
+        snprintf(buffer, buffer_size, "%lldh %lldm", hours, minutes);
+    } else if (minutes > 0) {
+        snprintf(buffer, buffer_size, "%lldm", minutes);
+    } else {
+        snprintf(buffer, buffer_size, "%llds", remaining_seconds);
     }
 }
 
