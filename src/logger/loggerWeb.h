@@ -17,6 +17,7 @@ int loggerWebInsertGraphSeries(const char* title,
                                const char* const* y_columns,
                                size_t y_column_count);
 int loggerWebShowStats(int enabled);
+int loggerWebShowRefreshButton(int enabled);
 int loggerWebShowVerts(const char* graph_title,
                        const char* column,
                        const char* value,

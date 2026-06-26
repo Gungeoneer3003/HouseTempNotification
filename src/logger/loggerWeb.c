@@ -67,6 +67,13 @@ int loggerWebShowStats(int enabled) {
     return 0;
 }
 
+int loggerWebShowRefreshButton(int enabled) {
+    (void)enabled;
+
+    fprintf(stderr, "Logger web graphs are not supported on Windows\n");
+    return 0;
+}
+
 int loggerWebShowVerts(const char* graph_title,
                        const char* column,
                        const char* value,
@@ -178,6 +185,7 @@ typedef struct {
     size_t graph_count;
     size_t graph_capacity;
     int show_stats;
+    int show_refresh_button;
     LoggerWebTodayColumn* today_columns;
     size_t today_column_count;
 } LoggerWebServer;
@@ -224,6 +232,7 @@ static int graphRangeWindow(LoggerWebGraphRange range,
                             time_t now,
                             time_t* range_start,
                             time_t* range_end);
+static int graphDayWindow(time_t now, time_t* range_start, time_t* range_end);
 static int localDayStart(time_t value, int day_offset, time_t* out);
 static int graphStatsWindow(time_t now, time_t* window_start, time_t* window_end);
 static int parseRequestPath(const char* request, char* path, size_t path_size);
@@ -502,6 +511,19 @@ int loggerWebShowStats(int enabled) {
     }
 
     server->show_stats = enabled != 0;
+    pthread_mutex_unlock(&active_server_mutex);
+    return 1;
+}
+
+int loggerWebShowRefreshButton(int enabled) {
+    pthread_mutex_lock(&active_server_mutex);
+    LoggerWebServer* server = active_server;
+    if (!server) {
+        pthread_mutex_unlock(&active_server_mutex);
+        return 0;
+    }
+
+    server->show_refresh_button = enabled != 0;
     pthread_mutex_unlock(&active_server_mutex);
     return 1;
 }
@@ -957,12 +979,53 @@ static int graphRangeWindow(LoggerWebGraphRange range,
         return 0;
     }
 
-    int start_offset = range == LOGGER_WEB_GRAPH_RANGE_WEEK ? -6 : 0;
-    if (!localDayStart(now, start_offset, range_start) ||
+    if (range == LOGGER_WEB_GRAPH_RANGE_DAY) {
+        return graphDayWindow(now, range_start, range_end);
+    }
+
+    if (!localDayStart(now, -6, range_start) ||
         !localDayStart(now, 1, range_end)) {
         return 0;
     }
 
+    return 1;
+}
+
+static int graphDayWindow(time_t now, time_t* range_start, time_t* range_end) {
+    if (!range_start || !range_end) {
+        return 0;
+    }
+
+    struct tm local;
+    if (!logLocaltime(&now, &local)) {
+        return 0;
+    }
+
+    struct tm start_local = local;
+    start_local.tm_mday -= 1;
+    start_local.tm_hour = (local.tm_hour / 2) * 2;
+    start_local.tm_min = 0;
+    start_local.tm_sec = 0;
+    start_local.tm_isdst = -1;
+
+    struct tm end_local = local;
+    int end_hour = (local.tm_hour / 2) * 2;
+    if ((local.tm_hour % 2) != 0 || local.tm_min > 0 || local.tm_sec > 0) {
+        end_hour += 2;
+    }
+    end_local.tm_hour = end_hour;
+    end_local.tm_min = 0;
+    end_local.tm_sec = 0;
+    end_local.tm_isdst = -1;
+
+    time_t start = mktime(&start_local);
+    time_t end = mktime(&end_local);
+    if (start == (time_t)-1 || end == (time_t)-1 || end <= start) {
+        return 0;
+    }
+
+    *range_start = start;
+    *range_end = end;
     return 1;
 }
 
@@ -1188,6 +1251,9 @@ static void sendGraphs(int client_fd, const LoggerWebServer* server) {
     sendAll(client_fd,
             "<main id=\"graphs\" class=\"graphs\" data-graph-data-url=\"");
     sendAll(client_fd, graph_data_path);
+    sendAll(client_fd,
+            "\" data-refresh-ms=\"150000\" data-show-refresh-button=\"");
+    sendAll(client_fd, server->show_refresh_button ? "1" : "0");
     sendAll(client_fd,
             "\">"
             "<p class=\"empty\">Loading graphs...</p>"

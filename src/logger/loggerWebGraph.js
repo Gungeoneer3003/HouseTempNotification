@@ -8,12 +8,15 @@
     let currentRange = "day";
     let currentRangeStart = null;
     let currentRangeEnd = null;
+    let loadingGraphs = false;
 
     if (!root) {
         return;
     }
 
     const graphDataUrl = root.getAttribute("data-graph-data-url") || "/graphs/data";
+    const graphRefreshMs = refreshMsFromAttribute(root.getAttribute("data-refresh-ms"));
+    const showRefreshButton = root.getAttribute("data-show-refresh-button") === "1";
 
     function chartIsReady() {
         return typeof window.Chart === "function";
@@ -113,6 +116,11 @@
             return;
         }
 
+        if (loadingGraphs) {
+            return;
+        }
+
+        loadingGraphs = true;
         try {
             const response = await fetch(graphDataRequestUrl(), { cache: "no-store" });
             if (!response.ok) {
@@ -130,6 +138,8 @@
         } catch (error) {
             renderToday(null);
             renderError("Graph data unavailable.");
+        } finally {
+            loadingGraphs = false;
         }
     }
 
@@ -240,9 +250,11 @@
         const actions = document.createElement("div");
         actions.className = "graph-actions";
 
-        actions.appendChild(actionButton("Refresh", () => {
-            loadGraphs();
-        }));
+        if (showRefreshButton) {
+            actions.appendChild(actionButton("Refresh", () => {
+                loadGraphs();
+            }));
+        }
         actions.appendChild(rangeButton("day", "Show Day"));
         actions.appendChild(rangeButton("week", "Show Week"));
 
@@ -523,16 +535,18 @@
 
     function buildHourlyTicks(start, end) {
         const ticks = [];
-        const base = new Date(start * 1000);
-        base.setHours(0, 0, 0, 0);
+        const tick = new Date(start * 1000);
+        tick.setMinutes(0, 0, 0);
+        if (tick.getHours() % 2 !== 0) {
+            tick.setHours(tick.getHours() - 1);
+        }
+        if (tick.getTime() / 1000 < start) {
+            tick.setHours(tick.getHours() + 2);
+        }
 
-        for (let hour = 0; hour <= 24; hour += 2) {
-            const tick = new Date(base.getTime());
-            tick.setHours(hour, 0, 0, 0);
-            const value = tick.getTime() / 1000;
-            if (value >= start && value <= end) {
-                ticks.push(value);
-            }
+        while (tick.getTime() / 1000 <= end) {
+            ticks.push(tick.getTime() / 1000);
+            tick.setHours(tick.getHours() + 2);
         }
 
         return ticks;
@@ -558,6 +572,11 @@
     function finiteNumber(value) {
         const number = Number(value);
         return Number.isFinite(number) ? number : null;
+    }
+
+    function refreshMsFromAttribute(value) {
+        const refreshMs = Number(value);
+        return Number.isFinite(refreshMs) && refreshMs > 0 ? refreshMs : 150000;
     }
 
     function formatAxisTick(value) {
@@ -613,4 +632,7 @@
     }
 
     loadGraphs();
+    if (!showRefreshButton) {
+        window.setInterval(loadGraphs, graphRefreshMs);
+    }
 }());
