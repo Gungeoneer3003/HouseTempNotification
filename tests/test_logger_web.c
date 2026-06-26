@@ -52,6 +52,7 @@ int main(int argc, char** argv) {
                                logger_web_temperature_graph_columns,
                                sizeof(logger_web_temperature_graph_columns) /
                                    sizeof(logger_web_temperature_graph_columns[0]));
+    loggerWebSetRootDirectory("graphs");
 
 #ifdef _WIN32
     Sleep(3000);

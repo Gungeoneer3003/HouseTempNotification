@@ -147,6 +147,7 @@ static int lprintUnlocked(const char* log_path, const char* message) {
     }
 
     //Log format: timestamp|message
+    //Note: Should patch out the now part later
     fprintf(file, "%lld|%s|%s\n", (long long)now, timestamp, message);
     fclose(file);
     return 1;

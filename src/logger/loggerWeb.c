@@ -30,6 +30,13 @@ int loggerWebStart(const char* log_path,
     return 0;
 }
 
+int loggerWebSetRootDirectory(const char* subdirectory) {
+    (void)subdirectory;
+
+    fprintf(stderr, "Logger web viewer is not supported on Windows\n");
+    return 0;
+}
+
 int loggerWebInsertGraph(const char* title,
                          const char* x_column,
                          const char* y_column) {
@@ -97,6 +104,11 @@ int loggerWebShowToday(const char* const* columns,
 #define LOGGER_WEB_MAX_LINE 2048
 #endif
 
+#define LOGGER_WEB_ROOT_LOG "log"
+#define LOGGER_WEB_ROOT_GRAPHS "graphs"
+#define LOGGER_WEB_ROOT_DIRECTORY_SIZE 32
+#define LOGGER_WEB_MAX_PATH 256
+
 typedef struct {
     char* name;
     size_t index;
@@ -126,6 +138,7 @@ typedef struct {
 
 typedef struct {
     char log_path[512];
+    char root_directory[LOGGER_WEB_ROOT_DIRECTORY_SIZE];
     unsigned short port;
     int server_fd;
     char* title;
@@ -156,9 +169,20 @@ static int appendGraphVert(LoggerWebGraph* graph,
                            size_t column_index,
                            const char* value,
                            const char* color);
+static int normalizeRootDirectory(const char* subdirectory,
+                                  char* output,
+                                  size_t output_size);
+static int supportedRootDirectory(const char* subdirectory);
+static void copyRootDirectory(const LoggerWebServer* server,
+                              char* output,
+                              size_t output_size);
+static int rootDirectoryEquals(const LoggerWebServer* server, const char* subdirectory);
+static int parseRequestPath(const char* request, char* path, size_t path_size);
+static int pathEquals(const char* path, const char* expected);
 static char* copyString(const char* value);
 static void* serverLoop(void* arg);
 static void handleClient(int client_fd, const LoggerWebServer* server);
+static void sendRoot(int client_fd, const LoggerWebServer* server);
 static void sendIndex(int client_fd, const LoggerWebServer* server);
 static void sendGraphs(int client_fd, const LoggerWebServer* server);
 static void sendGraphData(int client_fd, const LoggerWebServer* server);
@@ -226,6 +250,10 @@ int loggerWebStart(const char* log_path,
         fprintf(stderr, "Log path is too long for web viewer\n");
         return 0;
     }
+    snprintf(server->root_directory,
+             sizeof(server->root_directory),
+             "%s",
+             LOGGER_WEB_ROOT_LOG);
 
     if (!initServerDisplay(server, title, column_headers, column_header_count)) {
         free(server);
@@ -291,6 +319,28 @@ int loggerWebStart(const char* log_path,
     pthread_mutex_unlock(&active_server_mutex);
 
     printf("Logger web viewer listening on port %u\n", (unsigned)port);
+    return 1;
+}
+
+int loggerWebSetRootDirectory(const char* subdirectory) {
+    char normalized[LOGGER_WEB_ROOT_DIRECTORY_SIZE];
+    if (!normalizeRootDirectory(subdirectory, normalized, sizeof(normalized)) ||
+        !supportedRootDirectory(normalized)) {
+        return 0;
+    }
+
+    pthread_mutex_lock(&active_server_mutex);
+    LoggerWebServer* server = active_server;
+    if (!server) {
+        pthread_mutex_unlock(&active_server_mutex);
+        return 0;
+    }
+
+    snprintf(server->root_directory,
+             sizeof(server->root_directory),
+             "%s",
+             normalized);
+    pthread_mutex_unlock(&active_server_mutex);
     return 1;
 }
 
@@ -640,6 +690,110 @@ static int appendGraphVert(LoggerWebGraph* graph,
     return 1;
 }
 
+static int normalizeRootDirectory(const char* subdirectory,
+                                  char* output,
+                                  size_t output_size) {
+    if (!subdirectory || !output || output_size == 0) {
+        return 0;
+    }
+
+    while (*subdirectory == '/') {
+        subdirectory++;
+    }
+
+    const char* end = subdirectory + strlen(subdirectory);
+    while (end > subdirectory && end[-1] == '/') {
+        end--;
+    }
+
+    size_t length = (size_t)(end - subdirectory);
+    if (length == 0 || length >= output_size) {
+        return 0;
+    }
+
+    for (size_t i = 0; i < length; i++) {
+        unsigned char c = (unsigned char)subdirectory[i];
+        if (!isalnum(c) && c != '-' && c != '_') {
+            return 0;
+        }
+
+        output[i] = (char)tolower(c);
+    }
+    output[length] = '\0';
+    return 1;
+}
+
+static int supportedRootDirectory(const char* subdirectory) {
+    return stringEqualsIgnoreCase(subdirectory, LOGGER_WEB_ROOT_LOG) ||
+           stringEqualsIgnoreCase(subdirectory, LOGGER_WEB_ROOT_GRAPHS);
+}
+
+static void copyRootDirectory(const LoggerWebServer* server,
+                              char* output,
+                              size_t output_size) {
+    if (!output || output_size == 0) {
+        return;
+    }
+
+    snprintf(output, output_size, "%s", LOGGER_WEB_ROOT_LOG);
+
+    pthread_mutex_lock(&active_server_mutex);
+    if (server && server->root_directory[0]) {
+        snprintf(output, output_size, "%s", server->root_directory);
+    }
+    pthread_mutex_unlock(&active_server_mutex);
+}
+
+static int rootDirectoryEquals(const LoggerWebServer* server, const char* subdirectory) {
+    char root_directory[LOGGER_WEB_ROOT_DIRECTORY_SIZE];
+    copyRootDirectory(server, root_directory, sizeof(root_directory));
+    return stringEqualsIgnoreCase(root_directory, subdirectory);
+}
+
+static int parseRequestPath(const char* request, char* path, size_t path_size) {
+    if (!request || !path || path_size == 0 || strncmp(request, "GET ", 4) != 0) {
+        return 0;
+    }
+
+    const char* start = request + 4;
+    if (*start != '/') {
+        return 0;
+    }
+
+    const char* end = start;
+    while (*end && *end != ' ' && *end != '?' && *end != '\r' && *end != '\n') {
+        end++;
+    }
+
+    size_t length = (size_t)(end - start);
+    if (length == 0 || length >= path_size) {
+        return 0;
+    }
+
+    memcpy(path, start, length);
+    path[length] = '\0';
+    return 1;
+}
+
+static int pathEquals(const char* path, const char* expected) {
+    if (!path || !expected) {
+        return 0;
+    }
+
+    if (strcmp(path, expected) == 0) {
+        return 1;
+    }
+
+    size_t expected_length = strlen(expected);
+    if (expected_length == 0 || strcmp(expected, "/") == 0) {
+        return 0;
+    }
+
+    return strncmp(path, expected, expected_length) == 0 &&
+           path[expected_length] == '/' &&
+           path[expected_length + 1] == '\0';
+}
+
 //Create a copy of a string using dynamic memory allocation
 static char* copyString(const char* value) {
     size_t length = strlen(value) + 1;
@@ -681,27 +835,41 @@ static void handleClient(int client_fd, const LoggerWebServer* server) {
     //Null-terminate the request string so we can safely use string functions on it
     request[bytes] = '\0';
 
+    char path[LOGGER_WEB_MAX_PATH];
+    if (!parseRequestPath(request, path, sizeof(path))) {
+        sendNotFound(client_fd);
+        return;
+    }
+
     //Check the request path and respond accordingly
-    //(Probably want to make this less dense)
-    if (strncmp(request, "GET / ", 6) == 0 || strncmp(request, "GET /?", 6) == 0) {
+    if (pathEquals(path, "/")) {
+        sendRoot(client_fd, server);
+    } else if (pathEquals(path, "/log")) {
         sendIndex(client_fd, server);
-    } else if (strncmp(request, "GET /graphs/data ", 17) == 0 ||
-               strncmp(request, "GET /graphs/data?", 17) == 0) {
+    } else if (pathEquals(path, "/graphs/data") ||
+               (rootDirectoryEquals(server, LOGGER_WEB_ROOT_GRAPHS) &&
+                pathEquals(path, "/data"))) {
         sendGraphData(client_fd, server);
-    } else if (strncmp(request, "GET /graphs ", 12) == 0 ||
-               strncmp(request, "GET /graphs?", 12) == 0) {
+    } else if (pathEquals(path, "/graphs")) {
         sendGraphs(client_fd, server);
-    } else if (strncmp(request, "GET /raw ", 9) == 0 || strncmp(request, "GET /raw?", 9) == 0) {
+    } else if (pathEquals(path, "/raw")) {
         sendRawLog(client_fd, server->log_path);
-    } else if (strncmp(request, "GET /style.css ", 15) == 0 ||
-           strncmp(request, "GET /style.css?", 15) == 0) {
+    } else if (pathEquals(path, "/style.css")) {
         sendCss(client_fd);
-    } else if (strncmp(request, "GET /loggerWebGraph.js ", 23) == 0 ||
-           strncmp(request, "GET /loggerWebGraph.js?", 23) == 0) {
+    } else if (pathEquals(path, "/loggerWebGraph.js")) {
         sendGraphScript(client_fd);
     } else {
         sendNotFound(client_fd);
     }
+}
+
+static void sendRoot(int client_fd, const LoggerWebServer* server) {
+    if (rootDirectoryEquals(server, LOGGER_WEB_ROOT_GRAPHS)) {
+        sendGraphs(client_fd, server);
+        return;
+    }
+
+    sendIndex(client_fd, server);
 }
 
 //Send the main index page with the log table
@@ -747,8 +915,14 @@ static void sendGraphs(int client_fd, const LoggerWebServer* server) {
     sendAll(client_fd, " Graphs</h1>");
     sendAll(client_fd, "<section id=\"today\" class=\"today-panel is-hidden\"></section>");
     sendNav(client_fd, server);
+    const char* graph_data_path = rootDirectoryEquals(server, LOGGER_WEB_ROOT_GRAPHS)
+        ? "/data"
+        : "/graphs/data";
     sendAll(client_fd,
-            "<main id=\"graphs\" class=\"graphs\">"
+            "<main id=\"graphs\" class=\"graphs\" data-graph-data-url=\"");
+    sendAll(client_fd, graph_data_path);
+    sendAll(client_fd,
+            "\">"
             "<p class=\"empty\">Loading graphs...</p>"
             "</main>"
             "<script src=\"https://cdn.jsdelivr.net/npm/chart.js\"></script>"
@@ -970,15 +1144,25 @@ static void sendTemplateLine(int client_fd, const char* line, const LoggerWebSer
 }
 
 static void sendNav(int client_fd, const LoggerWebServer* server) {
-    sendAll(client_fd, "<p class=\"nav\"><a href=\"/raw\">Raw log</a>");
+    const char* log_path = rootDirectoryEquals(server, LOGGER_WEB_ROOT_LOG) ? "/" : "/log";
+    const char* graphs_path = rootDirectoryEquals(server, LOGGER_WEB_ROOT_GRAPHS)
+        ? "/"
+        : "/graphs";
+
+    sendAll(client_fd, "<p class=\"nav\"><a href=\"");
+    sendAll(client_fd, log_path);
+    sendAll(client_fd, "\">Log</a> <a href=\"/raw\">Raw log</a>");
     if (loggerWebHasGraphs(server)) {
-        sendAll(client_fd, " <a href=\"/graphs\">Graphs</a>");
+        sendAll(client_fd, " <a href=\"");
+        sendAll(client_fd, graphs_path);
+        sendAll(client_fd, "\">Graphs</a>");
     }
     sendAll(client_fd, "</p>");
 }
 
 //Send the table header row with the column headers
 static void sendTableHeaders(int client_fd, const LoggerWebServer* server) {
+    //Note: Need to remove the Unix header at some point
     sendAll(client_fd, "<th>Unix</th>\n                <th>Time</th>");
 
     for (size_t i = 0; i < server->column_header_count; i++) {

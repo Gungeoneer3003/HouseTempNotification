@@ -10,6 +10,8 @@
         return;
     }
 
+    const graphDataUrl = root.getAttribute("data-graph-data-url") || "/graphs/data";
+
     function chartIsReady() {
         return typeof window.Chart === "function";
     }
@@ -61,7 +63,7 @@
         }
 
         try {
-            const response = await fetch("/graphs/data", { cache: "no-store" });
+            const response = await fetch(graphDataUrl, { cache: "no-store" });
             if (!response.ok) {
                 throw new Error("graph data request failed");
             }

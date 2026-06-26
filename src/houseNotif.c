@@ -90,10 +90,14 @@ int main(void)
                                    sizeof(logger_web_temperature_graph_columns) /
                                        sizeof(logger_web_temperature_graph_columns[0]));
         loggerWebShowStats(1);
-        loggerWebShowVerts("Temperature Overlay", "Event", "notify sent", "#8b1a1a");
+
+        loggerWebShowVerts("Temperature Overlay", "Event", "open notif", "#1a1a8b");
+        loggerWebShowVerts("Temperature Overlay", "Event", "close notif", "#8b1a1a");
+
         loggerWebShowToday(logger_web_today_columns,
                            sizeof(logger_web_today_columns) /
                                sizeof(logger_web_today_columns[0]));
+        loggerWebSetRootDirectory("graphs");
     }
 #endif
 
@@ -158,10 +162,18 @@ int main(void)
             // next window, but still check for safety.
             if (!withinWindow(currentRec, currentNow))
             {
-                lprintf(config.log_path, "%d|%d|%d|%d|%s|wrong time|",
+                //This is an error event, so let's specify what happens here
+                char errorEvent[32];
+                if(currentRec == REC_CLOSE) 
+                    snprintf(errorEvent, sizeof(errorEvent), "%s", "Ignoring close");
+                else
+                    snprintf(errorEvent, sizeof(errorEvent), "%s", "Ignoring open");
+
+
+                lprintf(config.log_path, "%d|%d|%d|%d|%s|%s|",
                         currentReading.house, currentReading.outside_air, 
                         currentReading.attic, currentReading.power, 
-                        getRecName(currentRec));
+                        getRecName(currentRec), errorEvent);
 
                 portableSleepSeconds(POLL_INTERVAL_SECONDS);
                 continue;
@@ -285,10 +297,17 @@ static void *notifyThread(void *arg)
         // Log the notification attempt and result
         if (msgResult)
         {
-            lprintf(config.log_path, "%d|%d|%d|%d|%s|notify sent|%s",
+            //Mark the specific event
+            char notifEvent[32];
+            if(localRec == REC_CLOSE) 
+                snprintf(notifEvent, sizeof(notifEvent), "%s", "close notif");
+            else
+                snprintf(notifEvent, sizeof(notifEvent), "%s", "open notif");
+
+            lprintf(config.log_path, "%d|%d|%d|%d|%s|%s|%s",
                     localReading.house, localReading.outside_air,
                     localReading.attic, localReading.power,
-                    getRecName(localRec), msg);
+                    getRecName(localRec), notifEvent, msg);
 
             // Sleep until next time window
             long sleep_sec = secUntilWindow(localRec, localNow);
