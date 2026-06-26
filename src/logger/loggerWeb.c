@@ -123,6 +123,10 @@ int loggerWebShowToday(const char* const* columns,
 #define LOGGER_WEB_ROOT_GRAPHS "graphs"
 #define LOGGER_WEB_ROOT_DIRECTORY_SIZE 32
 #define LOGGER_WEB_MAX_PATH 256
+#define LOGGER_WEB_UNIX_FIELD 0
+#define LOGGER_WEB_DATE_FIELD 1
+#define LOGGER_WEB_TIME_FIELD 2
+#define LOGGER_WEB_DATA_FIELD 3
 
 typedef struct {
     char* name;
@@ -216,7 +220,11 @@ static void copyRootDirectory(const LoggerWebServer* server,
 static int rootDirectoryEquals(const LoggerWebServer* server, const char* subdirectory);
 static LoggerWebGraphRange parseGraphRange(const char* request);
 static const char* graphRangeName(LoggerWebGraphRange range);
-static time_t graphRangeStart(LoggerWebGraphRange range, time_t now);
+static int graphRangeWindow(LoggerWebGraphRange range,
+                            time_t now,
+                            time_t* range_start,
+                            time_t* range_end);
+static int localDayStart(time_t value, int day_offset, time_t* out);
 static int graphStatsWindow(time_t now, time_t* window_start, time_t* window_end);
 static int parseRequestPath(const char* request, char* path, size_t path_size);
 static int pathEquals(const char* path, const char* expected);
@@ -243,6 +251,10 @@ static void sendColspanMessage(int client_fd, size_t column_count, const char* m
 static size_t totalColumnCount(const LoggerWebServer* server);
 static size_t displayedColumnCount(const LoggerWebServer* server);
 static int splitFields(char* line, char** fields, size_t column_count);
+static const char* fieldForColumn(char** fields, size_t column_index);
+static int rowHasSplitDateTime(char** fields);
+static int looksLikeDateField(const char* value);
+static int looksLikeTimeField(const char* value);
 static void writeLogRows(int client_fd, const LoggerWebServer* server);
 static void writeLogRow(int client_fd, char* line, const LoggerWebServer* server);
 static void writeGraphJson(int client_fd,
@@ -273,6 +285,8 @@ static int parseDouble(const char* value, double* out);
 static int parseUnixTime(const char* value, time_t* out);
 static int logLocaltime(const time_t* value, struct tm* out);
 static void formatUnixLabel(time_t value, char* buffer, size_t buffer_size);
+static void formatUnixDate(time_t value, char* buffer, size_t buffer_size);
+static void formatUnixTime(time_t value, char* buffer, size_t buffer_size);
 static void formatDuration(time_t seconds, char* buffer, size_t buffer_size);
 static int loggerWebHasGraphs(const LoggerWebServer* server);
 static int resolveColumnIndex(const LoggerWebServer* server,
@@ -935,13 +949,46 @@ static const char* graphRangeName(LoggerWebGraphRange range) {
     return range == LOGGER_WEB_GRAPH_RANGE_WEEK ? "week" : "day";
 }
 
-static time_t graphRangeStart(LoggerWebGraphRange range, time_t now) {
-    time_t day_seconds = (time_t)24 * 60 * 60;
-    time_t span_seconds = range == LOGGER_WEB_GRAPH_RANGE_WEEK
-        ? day_seconds * 7
-        : day_seconds;
+static int graphRangeWindow(LoggerWebGraphRange range,
+                            time_t now,
+                            time_t* range_start,
+                            time_t* range_end) {
+    if (!range_start || !range_end) {
+        return 0;
+    }
 
-    return now - span_seconds;
+    int start_offset = range == LOGGER_WEB_GRAPH_RANGE_WEEK ? -6 : 0;
+    if (!localDayStart(now, start_offset, range_start) ||
+        !localDayStart(now, 1, range_end)) {
+        return 0;
+    }
+
+    return 1;
+}
+
+static int localDayStart(time_t value, int day_offset, time_t* out) {
+    if (!out) {
+        return 0;
+    }
+
+    struct tm local;
+    if (!logLocaltime(&value, &local)) {
+        return 0;
+    }
+
+    local.tm_mday += day_offset;
+    local.tm_hour = 0;
+    local.tm_min = 0;
+    local.tm_sec = 0;
+    local.tm_isdst = -1;
+
+    time_t start = mktime(&local);
+    if (start == (time_t)-1) {
+        return 0;
+    }
+
+    *out = start;
+    return 1;
 }
 
 static int graphStatsWindow(time_t now, time_t* window_start, time_t* window_end) {
@@ -1154,12 +1201,22 @@ static void sendGraphs(int client_fd, const LoggerWebServer* server) {
 static void sendGraphData(int client_fd,
                           const LoggerWebServer* server,
                           LoggerWebGraphRange range) {
-    time_t range_end = time(NULL);
-    time_t range_start = graphRangeStart(range, range_end);
+    time_t now = time(NULL);
+    time_t range_start = now - (time_t)24 * 60 * 60;
+    time_t range_end = now;
+    if (!graphRangeWindow(range, now, &range_start, &range_end)) {
+        if (range == LOGGER_WEB_GRAPH_RANGE_WEEK) {
+            range_start = now - (time_t)7 * 24 * 60 * 60;
+        }
+    }
     char range_start_label[32];
     char range_end_label[32];
+    char range_start_unix[32];
+    char range_end_unix[32];
     formatUnixLabel(range_start, range_start_label, sizeof(range_start_label));
     formatUnixLabel(range_end, range_end_label, sizeof(range_end_label));
+    snprintf(range_start_unix, sizeof(range_start_unix), "%lld", (long long)range_start);
+    snprintf(range_end_unix, sizeof(range_end_unix), "%lld", (long long)range_end);
 
     sendAll(client_fd,
             "HTTP/1.1 200 OK\r\n"
@@ -1170,9 +1227,13 @@ static void sendGraphData(int client_fd,
     sendAll(client_fd, graphRangeName(range));
     sendAll(client_fd, "\",\"rangeStart\":\"");
     sendJsonEscaped(client_fd, range_start_label);
-    sendAll(client_fd, "\",\"rangeEnd\":\"");
+    sendAll(client_fd, "\",\"rangeStartUnix\":");
+    sendAll(client_fd, range_start_unix);
+    sendAll(client_fd, ",\"rangeEnd\":\"");
     sendJsonEscaped(client_fd, range_end_label);
-    sendAll(client_fd, "\",\"today\":");
+    sendAll(client_fd, "\",\"rangeEndUnix\":");
+    sendAll(client_fd, range_end_unix);
+    sendAll(client_fd, ",\"today\":");
 
     pthread_mutex_lock(&active_server_mutex);
     writeTodayJson(client_fd, server);
@@ -1415,7 +1476,7 @@ static void sendNav(int client_fd, const LoggerWebServer* server) {
 
 //Send the table header row with the column headers
 static void sendTableHeaders(int client_fd, const LoggerWebServer* server) {
-    sendAll(client_fd, "<th>Time</th>");
+    sendAll(client_fd, "<th>Date</th>\n                <th>Time</th>");
 
     for (size_t i = 0; i < server->column_header_count; i++) {
         sendAll(client_fd, "\n                <th>");
@@ -1437,7 +1498,7 @@ static void sendColspanMessage(int client_fd, size_t column_count, const char* m
 }
 
 static size_t totalColumnCount(const LoggerWebServer* server) {
-    return server->column_header_count + 2;
+    return server->column_header_count + LOGGER_WEB_DATA_FIELD;
 }
 
 static size_t displayedColumnCount(const LoggerWebServer* server) {
@@ -1470,6 +1531,51 @@ static int splitFields(char* line, char** fields, size_t column_count) {
     }
 
     return 1;
+}
+
+static const char* fieldForColumn(char** fields, size_t column_index) {
+    if (!fields) {
+        return NULL;
+    }
+
+    if (column_index < LOGGER_WEB_DATA_FIELD || rowHasSplitDateTime(fields)) {
+        return fields[column_index];
+    }
+
+    return fields[column_index - 1];
+}
+
+static int rowHasSplitDateTime(char** fields) {
+    return fields &&
+           looksLikeDateField(fields[LOGGER_WEB_DATE_FIELD]) &&
+           looksLikeTimeField(fields[LOGGER_WEB_TIME_FIELD]);
+}
+
+static int looksLikeDateField(const char* value) {
+    if (!value || strlen(value) != 10) {
+        return 0;
+    }
+
+    return value &&
+           isdigit((unsigned char)value[0]) &&
+           isdigit((unsigned char)value[1]) &&
+           isdigit((unsigned char)value[2]) &&
+           isdigit((unsigned char)value[3]) &&
+           value[4] == '-' &&
+           isdigit((unsigned char)value[5]) &&
+           isdigit((unsigned char)value[6]) &&
+           value[7] == '-' &&
+           isdigit((unsigned char)value[8]) &&
+           isdigit((unsigned char)value[9]) &&
+           value[10] == '\0';
+}
+
+static int looksLikeTimeField(const char* value) {
+    if (!value || !strchr(value, ':')) {
+        return 0;
+    }
+
+    return strstr(value, " AM") != NULL || strstr(value, " PM") != NULL;
 }
 
 //Read the log file and write each line as a row in the log table, starting with the most recent entries
@@ -1569,10 +1675,42 @@ static void writeLogRow(int client_fd, char* line, const LoggerWebServer* server
     splitFields(line, fields, column_count);
 
     //Send the fields as a row in the log table, with HTML escaping for special characters
+    time_t logged_at = 0;
+    int has_logged_at = parseUnixTime(fields[LOGGER_WEB_UNIX_FIELD], &logged_at);
+    char date_text[32] = "";
+    char time_text[32] = "";
+    if (has_logged_at) {
+        formatUnixDate(logged_at, date_text, sizeof(date_text));
+        formatUnixTime(logged_at, time_text, sizeof(time_text));
+    } else if (rowHasSplitDateTime(fields)) {
+        snprintf(date_text, sizeof(date_text), "%s", fields[LOGGER_WEB_DATE_FIELD]);
+        snprintf(time_text, sizeof(time_text), "%s", fields[LOGGER_WEB_TIME_FIELD]);
+    } else if (fields[LOGGER_WEB_DATE_FIELD]) {
+        const char* separator = strchr(fields[LOGGER_WEB_DATE_FIELD], ' ');
+        if (separator) {
+            size_t date_length = (size_t)(separator - fields[LOGGER_WEB_DATE_FIELD]);
+            if (date_length >= sizeof(date_text)) {
+                date_length = sizeof(date_text) - 1;
+            }
+            memcpy(date_text, fields[LOGGER_WEB_DATE_FIELD], date_length);
+            date_text[date_length] = '\0';
+            snprintf(time_text, sizeof(time_text), "%s", separator + 1);
+        } else {
+            snprintf(date_text, sizeof(date_text), "%s", fields[LOGGER_WEB_DATE_FIELD]);
+        }
+    }
+
     sendAll(client_fd, "<tr>");
-    for (size_t i = 1; i < column_count; i++) {
+    sendAll(client_fd, "<td>");
+    sendEscaped(client_fd, date_text);
+    sendAll(client_fd, "</td><td>");
+    sendEscaped(client_fd, time_text);
+    sendAll(client_fd, "</td>");
+
+    for (size_t i = 0; i < server->column_header_count; i++) {
+        const char* field = fieldForColumn(fields, i + LOGGER_WEB_DATA_FIELD);
         sendAll(client_fd, "<td>");
-        sendEscaped(client_fd, fields[i] ? fields[i] : "");
+        sendEscaped(client_fd, field ? field : "");
         sendAll(client_fd, "</td>");
     }
     sendAll(client_fd, "</tr>");
@@ -1650,9 +1788,17 @@ static void writeGraphPointsJson(int client_fd,
             continue;
         }
 
-        const char* x_text = fields[graph->x_index];
-        if (!x_text || !*x_text) {
-            continue;
+        char x_text[64];
+        if (graph->x_index == LOGGER_WEB_UNIX_FIELD ||
+            graph->x_index == LOGGER_WEB_DATE_FIELD ||
+            graph->x_index == LOGGER_WEB_TIME_FIELD) {
+            formatUnixLabel(logged_at, x_text, sizeof(x_text));
+        } else {
+            const char* field = fieldForColumn(fields, graph->x_index);
+            if (!field || !*field) {
+                continue;
+            }
+            snprintf(x_text, sizeof(x_text), "%s", field);
         }
 
         int any_value = 0;
@@ -1660,7 +1806,7 @@ static void writeGraphPointsJson(int client_fd,
             has_value[i] = 0;
             values[i] = 0.0;
 
-            const char* y_text = fields[graph->series[i].index];
+            const char* y_text = fieldForColumn(fields, graph->series[i].index);
             if (parseDouble(y_text, &values[i])) {
                 has_value[i] = 1;
                 any_value = 1;
@@ -1677,7 +1823,11 @@ static void writeGraphPointsJson(int client_fd,
 
         sendAll(client_fd, "{\"x\":\"");
         sendJsonEscaped(client_fd, x_text);
-        sendAll(client_fd, "\",\"values\":[");
+        sendAll(client_fd, "\",\"time\":");
+        char time_text[32];
+        snprintf(time_text, sizeof(time_text), "%lld", (long long)logged_at);
+        sendAll(client_fd, time_text);
+        sendAll(client_fd, ",\"values\":[");
         for (size_t i = 0; i < graph->series_count; i++) {
             if (i > 0) {
                 sendAll(client_fd, ",");
@@ -1747,7 +1897,7 @@ static void writeGraphStatsJson(int client_fd,
 
             for (size_t i = 0; i < graph->series_count; i++) {
                 double value = 0.0;
-                if (!parseDouble(fields[graph->series[i].index], &value)) {
+                if (!parseDouble(fieldForColumn(fields, graph->series[i].index), &value)) {
                     continue;
                 }
 
@@ -1849,13 +1999,11 @@ static void writeGraphEventsJson(int client_fd,
             continue;
         }
 
-        const char* x_text = fields[graph->x_index];
-        if (!x_text || !*x_text) {
-            continue;
-        }
+        char x_text[64];
+        formatUnixLabel(logged_at, x_text, sizeof(x_text));
 
         for (size_t i = 0; i < graph->vert_count; i++) {
-            const char* field = fields[graph->verts[i].column_index];
+            const char* field = fieldForColumn(fields, graph->verts[i].column_index);
             if (!field || strcmp(field, graph->verts[i].value) != 0) {
                 continue;
             }
@@ -1866,7 +2014,11 @@ static void writeGraphEventsJson(int client_fd,
 
             sendAll(client_fd, "{\"x\":\"");
             sendJsonEscaped(client_fd, x_text);
-            sendAll(client_fd, "\",\"label\":\"");
+            sendAll(client_fd, "\",\"time\":");
+            char time_text[32];
+            snprintf(time_text, sizeof(time_text), "%lld", (long long)logged_at);
+            sendAll(client_fd, time_text);
+            sendAll(client_fd, ",\"label\":\"");
             sendJsonEscaped(client_fd, graph->verts[i].value);
             sendAll(client_fd, "\",\"color\":\"");
             sendJsonEscaped(client_fd, graph->verts[i].color);
@@ -1921,9 +2073,8 @@ static void writeGraphSpansJson(int client_fd,
                 continue;
             }
 
-            const char* x_text = fields[graph->x_index];
-            const char* field = fields[span->column_index];
-            if (!x_text || !*x_text || !field) {
+            const char* field = fieldForColumn(fields, span->column_index);
+            if (!field) {
                 continue;
             }
 
@@ -1931,7 +2082,7 @@ static void writeGraphSpansJson(int client_fd,
                 if (!has_start) {
                     has_start = 1;
                     start_time = logged_at;
-                    snprintf(start_x, sizeof(start_x), "%s", x_text);
+                    formatUnixLabel(logged_at, start_x, sizeof(start_x));
                 }
                 continue;
             }
@@ -1949,9 +2100,19 @@ static void writeGraphSpansJson(int client_fd,
 
                 sendAll(client_fd, "{\"start\":\"");
                 sendJsonEscaped(client_fd, start_x);
-                sendAll(client_fd, "\",\"end\":\"");
-                sendJsonEscaped(client_fd, x_text);
-                sendAll(client_fd, "\",\"label\":\"");
+                sendAll(client_fd, "\",\"startTime\":");
+                char start_time_text[32];
+                snprintf(start_time_text, sizeof(start_time_text), "%lld", (long long)start_time);
+                sendAll(client_fd, start_time_text);
+                sendAll(client_fd, ",\"end\":\"");
+                char end_x[256];
+                formatUnixLabel(logged_at, end_x, sizeof(end_x));
+                sendJsonEscaped(client_fd, end_x);
+                sendAll(client_fd, "\",\"endTime\":");
+                char end_time_text[32];
+                snprintf(end_time_text, sizeof(end_time_text), "%lld", (long long)logged_at);
+                sendAll(client_fd, end_time_text);
+                sendAll(client_fd, ",\"label\":\"");
                 sendJsonEscaped(client_fd, duration);
                 sendAll(client_fd, "\",\"durationSeconds\":");
                 sendAll(client_fd, seconds_text);
@@ -1999,12 +2160,15 @@ static void writeTodayJson(int client_fd, const LoggerWebServer* server) {
             }
 
             splitFields(line, fields, column_count);
+            time_t logged_at = 0;
+            int has_logged_at = parseUnixTime(fields[LOGGER_WEB_UNIX_FIELD], &logged_at);
             int any_value = 0;
             double row_values[16] = {0};
             int row_has_value[16] = {0};
 
             for (size_t i = 0; i < server->today_column_count; i++) {
-                if (parseDouble(fields[server->today_columns[i].index], &row_values[i])) {
+                const char* field = fieldForColumn(fields, server->today_columns[i].index);
+                if (parseDouble(field, &row_values[i])) {
                     row_has_value[i] = 1;
                     any_value = 1;
                 }
@@ -2018,7 +2182,16 @@ static void writeTodayJson(int client_fd, const LoggerWebServer* server) {
                 values[i] = row_values[i];
                 has_value[i] = row_has_value[i];
             }
-            snprintf(latest_time, sizeof(latest_time), "%s", fields[1] ? fields[1] : "");
+            if (has_logged_at) {
+                formatUnixTime(logged_at, latest_time, sizeof(latest_time));
+            } else if (rowHasSplitDateTime(fields)) {
+                snprintf(latest_time, sizeof(latest_time), "%s", fields[LOGGER_WEB_TIME_FIELD]);
+            } else {
+                snprintf(latest_time,
+                         sizeof(latest_time),
+                         "%s",
+                         fields[LOGGER_WEB_DATE_FIELD] ? fields[LOGGER_WEB_DATE_FIELD] : "");
+            }
         }
 
         free(fields);
@@ -2105,7 +2278,25 @@ static int logLocaltime(const time_t* value, struct tm* out) {
 static void formatUnixLabel(time_t value, char* buffer, size_t buffer_size) {
     struct tm local;
     if (logLocaltime(&value, &local)) {
-        strftime(buffer, buffer_size, "%Y-%m-%d %H:%M:%S", &local);
+        strftime(buffer, buffer_size, "%Y-%m-%d %I:%M:%S %p", &local);
+    } else if (buffer_size > 0) {
+        buffer[0] = '\0';
+    }
+}
+
+static void formatUnixDate(time_t value, char* buffer, size_t buffer_size) {
+    struct tm local;
+    if (logLocaltime(&value, &local)) {
+        strftime(buffer, buffer_size, "%Y-%m-%d", &local);
+    } else if (buffer_size > 0) {
+        buffer[0] = '\0';
+    }
+}
+
+static void formatUnixTime(time_t value, char* buffer, size_t buffer_size) {
+    struct tm local;
+    if (logLocaltime(&value, &local)) {
+        strftime(buffer, buffer_size, "%I:%M:%S %p", &local);
     } else if (buffer_size > 0) {
         buffer[0] = '\0';
     }
@@ -2151,18 +2342,23 @@ static int resolveColumnIndex(const LoggerWebServer* server,
                               const char* column,
                               size_t* index) {
     if (stringEqualsIgnoreCase(column, "Unix")) {
-        *index = 0;
+        *index = LOGGER_WEB_UNIX_FIELD;
+        return 1;
+    }
+
+    if (stringEqualsIgnoreCase(column, "Date")) {
+        *index = LOGGER_WEB_DATE_FIELD;
         return 1;
     }
 
     if (stringEqualsIgnoreCase(column, "Time")) {
-        *index = 1;
+        *index = LOGGER_WEB_TIME_FIELD;
         return 1;
     }
 
     for (size_t i = 0; i < server->column_header_count; i++) {
         if (stringEqualsIgnoreCase(column, server->column_headers[i])) {
-            *index = i + 2;
+            *index = i + LOGGER_WEB_DATA_FIELD;
             return 1;
         }
     }

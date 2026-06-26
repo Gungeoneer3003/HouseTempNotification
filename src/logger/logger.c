@@ -137,18 +137,21 @@ static int lprintUnlocked(const char* log_path, const char* message) {
     //Write log entry with timestamp
     time_t now = time(NULL);
     struct tm local;
-    char timestamp[32];
+    char log_date[16];
+    char log_time[16];
 
     //Use localtime_r for thread safety
     if (logLocaltime(&now, &local)) {
-        strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", &local);
+        strftime(log_date, sizeof(log_date), "%Y-%m-%d", &local);
+        strftime(log_time, sizeof(log_time), "%I:%M:%S %p", &local);
     } else {
-        snprintf(timestamp, sizeof(timestamp), "unknown");
+        snprintf(log_date, sizeof(log_date), "unknown");
+        snprintf(log_time, sizeof(log_time), "unknown");
     }
 
-    //Log format: timestamp|message
+    //Log format: unix|date|time|message
     //Note: Should patch out the now part later
-    fprintf(file, "%lld|%s|%s\n", (long long)now, timestamp, message);
+    fprintf(file, "%lld|%s|%s|%s\n", (long long)now, log_date, log_time, message);
     fclose(file);
     return 1;
 }

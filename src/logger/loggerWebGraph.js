@@ -6,6 +6,8 @@
     let currentGraphs = [];
     let currentToday = null;
     let currentRange = "day";
+    let currentRangeStart = null;
+    let currentRangeEnd = null;
 
     if (!root) {
         return;
@@ -32,18 +34,17 @@
                 return;
             }
 
-            const labels = chart.data.labels || [];
             const ctx = chart.ctx;
             ctx.save();
             spans.forEach((span) => {
-                const startIndex = labels.indexOf(span.start);
-                const endIndex = labels.indexOf(span.end);
-                if (startIndex < 0 || endIndex < 0 || endIndex <= startIndex) {
+                const startValue = finiteNumber(span.startTime);
+                const endValue = finiteNumber(span.endTime);
+                if (startValue === null || endValue === null || endValue <= startValue) {
                     return;
                 }
 
-                const startX = xScale.getPixelForValue(startIndex);
-                const endX = xScale.getPixelForValue(endIndex);
+                const startX = xScale.getPixelForValue(startValue);
+                const endX = xScale.getPixelForValue(endValue);
                 if (!Number.isFinite(startX) || !Number.isFinite(endX)) {
                     return;
                 }
@@ -69,12 +70,12 @@
             });
 
             events.forEach((event) => {
-                const index = labels.indexOf(event.x);
-                if (index < 0) {
+                const timeValue = finiteNumber(event.time);
+                if (timeValue === null) {
                     return;
                 }
 
-                const x = xScale.getPixelForValue(index);
+                const x = xScale.getPixelForValue(timeValue);
                 if (!Number.isFinite(x)) {
                     return;
                 }
@@ -88,6 +89,21 @@
                 ctx.stroke();
             });
             ctx.restore();
+        }
+    };
+
+    const timeAxisTicksPlugin = {
+        id: "loggerTimeAxisTicks",
+        afterBuildTicks(chart, args) {
+            const scale = args && args.scale;
+            if (!scale || scale.id !== "x") {
+                return;
+            }
+
+            const ticks = buildAxisTicks(scale.min, scale.max);
+            if (ticks.length > 0) {
+                scale.ticks = ticks.map((value) => ({ value }));
+            }
         }
     };
 
@@ -105,6 +121,8 @@
 
             const data = await response.json();
             currentRange = data.range === "week" ? "week" : "day";
+            currentRangeStart = finiteNumber(data.rangeStartUnix);
+            currentRangeEnd = finiteNumber(data.rangeEndUnix);
             currentToday = data.today || null;
             currentGraphs = Array.isArray(data.graphs) ? data.graphs : [];
             renderToday();
@@ -196,7 +214,7 @@
         const chartWrap = document.createElement("div");
         chartWrap.className = "chart-wrap";
 
-        if (Array.isArray(graph.points) && graph.points.length > 0) {
+        if (hasGraphPoints(graph)) {
             const canvas = document.createElement("canvas");
             canvas.className = "chart";
             canvas.setAttribute("role", "img");
@@ -251,12 +269,17 @@
     }
 
     function createChart(canvas, graph) {
-        const labels = (graph.points || []).map((point) => point.x);
+        const points = graphPoints(graph);
+        const bounds = xAxisBounds(points);
         const datasets = (graph.series || []).map((series, seriesIndex) => ({
             label: series.name || "Series",
-            data: (graph.points || []).map((point) => {
+            data: points.map((point) => {
                 const value = point.values ? point.values[seriesIndex] : null;
-                return Number.isFinite(value) ? value : null;
+                return {
+                    x: point.time,
+                    y: Number.isFinite(value) ? value : null,
+                    label: point.x || formatGraphDateTime(point.time)
+                };
             }),
             borderColor: colorForSeries(seriesIndex),
             backgroundColor: transparentColor(colorForSeries(seriesIndex), 0.12),
@@ -272,14 +295,14 @@
         const chart = new Chart(canvas, {
             type: "line",
             data: {
-                labels,
                 datasets
             },
-            plugins: [eventMarkerPlugin],
+            plugins: [timeAxisTicksPlugin, eventMarkerPlugin],
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
                 normalized: true,
+                parsing: false,
                 animation: {
                     duration: 300
                 },
@@ -312,26 +335,37 @@
                         borderWidth: 1,
                         titleColor: "#f8fafc",
                         bodyColor: "#e5e7eb",
-                        displayColors: true
+                        displayColors: true,
+                        callbacks: {
+                            title: function (items) {
+                                const item = items && items.length > 0 ? items[0] : null;
+                                const raw = item ? item.raw : null;
+                                return raw && Number.isFinite(raw.x) ? formatGraphDateTime(raw.x) : "";
+                            }
+                        }
                     }
                 },
                 scales: {
                     x: {
+                        type: "linear",
+                        min: bounds.min,
+                        max: bounds.max,
                         grid: {
                             color: "rgba(31, 41, 55, 0.55)"
                         },
                         ticks: {
                             color: "#cbd5e1",
                             maxRotation: 0,
-                            autoSkip: true,
-                            maxTicksLimit: 8,
+                            autoSkip: false,
+                            maxTicksLimit: currentRange === "week" ? 8 : 13,
+                            stepSize: currentRange === "week" ? 24 * 60 * 60 : 2 * 60 * 60,
                             callback: function (value) {
-                                return shortTime(this.getLabelForValue(value));
+                                return formatAxisTick(value);
                             }
                         },
                         title: {
                             display: true,
-                            text: graph.xColumn || "Time",
+                            text: currentRange === "week" ? "Day" : (graph.xColumn || "Time"),
                             color: "#cbd5e1"
                         }
                     },
@@ -436,28 +470,123 @@
         return names.length <= 1 ? (names[0] || "Y") : "Temperature";
     }
 
-    function shortTime(label) {
-        if (typeof label !== "string") {
-            return label;
-        }
-
-        const match = label.match(/\b(\d{1,2}:\d{2})(?::\d{2})?\b/);
-        return match ? match[1] : label;
+    function hasGraphPoints(graph) {
+        return graphPoints(graph).length > 0;
     }
 
-    function shortDate(label) {
-        if (typeof label !== "string") {
+    function graphPoints(graph) {
+        return (graph.points || []).map((point) => {
+            const time = finiteNumber(point.time);
+            if (time === null) {
+                return null;
+            }
+
+            return {
+                x: point.x,
+                time,
+                values: point.values
+            };
+        }).filter(Boolean);
+    }
+
+    function xAxisBounds(points) {
+        const rangeStart = finiteNumber(currentRangeStart);
+        const rangeEnd = finiteNumber(currentRangeEnd);
+        if (rangeStart !== null && rangeEnd !== null && rangeEnd > rangeStart) {
+            return { min: rangeStart, max: rangeEnd };
+        }
+
+        const values = points.map((point) => point.time).filter(Number.isFinite);
+        if (values.length === 0) {
+            const now = Math.floor(Date.now() / 1000);
+            return { min: now - 24 * 60 * 60, max: now };
+        }
+
+        const min = Math.min.apply(null, values);
+        const max = Math.max.apply(null, values);
+        return max > min ? { min, max } : { min: min - 60 * 60, max: max + 60 * 60 };
+    }
+
+    function buildAxisTicks(min, max) {
+        const rangeStart = finiteNumber(currentRangeStart);
+        const rangeEnd = finiteNumber(currentRangeEnd);
+        const start = rangeStart !== null ? rangeStart : finiteNumber(min);
+        const end = rangeEnd !== null ? rangeEnd : finiteNumber(max);
+        if (start === null || end === null || end <= start) {
+            return [];
+        }
+
+        return currentRange === "week"
+            ? buildDailyTicks(start, end)
+            : buildHourlyTicks(start, end);
+    }
+
+    function buildHourlyTicks(start, end) {
+        const ticks = [];
+        const base = new Date(start * 1000);
+        base.setHours(0, 0, 0, 0);
+
+        for (let hour = 0; hour <= 24; hour += 2) {
+            const tick = new Date(base.getTime());
+            tick.setHours(hour, 0, 0, 0);
+            const value = tick.getTime() / 1000;
+            if (value >= start && value <= end) {
+                ticks.push(value);
+            }
+        }
+
+        return ticks;
+    }
+
+    function buildDailyTicks(start, end) {
+        const ticks = [];
+        const base = new Date(start * 1000);
+        base.setHours(0, 0, 0, 0);
+
+        for (let day = 0; day < 7; day++) {
+            const tick = new Date(base.getTime());
+            tick.setDate(base.getDate() + day);
+            const value = tick.getTime() / 1000;
+            if (value >= start && value < end) {
+                ticks.push(value);
+            }
+        }
+
+        return ticks;
+    }
+
+    function finiteNumber(value) {
+        const number = Number(value);
+        return Number.isFinite(number) ? number : null;
+    }
+
+    function formatAxisTick(value) {
+        const seconds = finiteNumber(value);
+        if (seconds === null) {
             return "";
         }
 
-        const match = label.match(/^(\d{4}-\d{2}-\d{2})/);
-        return match ? match[1] : label;
+        return currentRange === "week" ? formatWeekday(seconds) : formatHour(seconds);
     }
 
-    function shortDateTime(label) {
-        const date = shortDate(label);
-        const time = shortTime(label);
-        return date && time ? `${date} ${time}` : label;
+    function formatGraphDateTime(seconds) {
+        const options = currentRange === "week"
+            ? { weekday: "long", hour: "numeric", minute: "2-digit", hour12: true }
+            : { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true };
+        return formatDate(seconds, options);
+    }
+
+    function formatHour(seconds) {
+        return formatDate(seconds, { hour: "numeric", hour12: true });
+    }
+
+    function formatWeekday(seconds) {
+        return formatDate(seconds, { weekday: "long" });
+    }
+
+    function formatDate(seconds, options) {
+        const date = new Date(seconds * 1000);
+        return Number.isFinite(date.getTime()) ? date.toLocaleString(undefined, options) : "";
     }
 
     function colorForSeries(index) {
