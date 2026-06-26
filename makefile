@@ -63,13 +63,13 @@ clean:
 
 
 #For managing the system service, which is actively running
-start:
+start: build
 	$(SSH) $(HOST) 'sudo systemctl start $(SERVICE)'
 
 stop:
 	$(SSH) $(HOST) 'sudo systemctl stop $(SERVICE)'
 
-restart:
+restart: build
 	$(SSH) $(HOST) 'sudo systemctl restart $(SERVICE)'
 
 status:

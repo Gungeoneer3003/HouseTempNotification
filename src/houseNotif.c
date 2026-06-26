@@ -93,7 +93,7 @@ int main(void)
 
         loggerWebShowVerts("Temperature Overlay", "Event", "open notif", "#1a1a8b");
         loggerWebShowVerts("Temperature Overlay", "Event", "close notif", "#8b1a1a");
-        loggerWebShowSpan("Temperature Overlay", "Event", "open notif", "close notif", "#f59e0b");
+        loggerWebShowSpan("Temperature Overlay", "Event", "open notif", "close notif", "#176e74");
 
         loggerWebShowToday(logger_web_today_columns,
                            sizeof(logger_web_today_columns) /
