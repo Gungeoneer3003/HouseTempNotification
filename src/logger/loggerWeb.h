@@ -28,6 +28,7 @@ int loggerWebShowSpan(const char* graph_title,
                       const char* end_value,
                       const char* color);
 int loggerWebShowToday(const char* const* columns,
-                       size_t column_count);
+                       size_t column_count,
+                       int show_on_other_pages);
 
 #endif

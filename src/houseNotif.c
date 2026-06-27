@@ -97,7 +97,8 @@ int main(void)
 
         loggerWebShowToday(logger_web_today_columns,
                            sizeof(logger_web_today_columns) /
-                               sizeof(logger_web_today_columns[0]));
+                               sizeof(logger_web_today_columns[0]),
+                           1);
         loggerWebSetRootDirectory("graphs");
     }
 #endif

@@ -104,9 +104,11 @@ int loggerWebShowSpan(const char* graph_title,
 }
 
 int loggerWebShowToday(const char* const* columns,
-                       size_t column_count) {
+                       size_t column_count,
+                       int show_on_other_pages) {
     (void)columns;
     (void)column_count;
+    (void)show_on_other_pages;
 
     fprintf(stderr, "Logger web graphs are not supported on Windows\n");
     return 0;
@@ -378,6 +380,7 @@ static void freeServerDisplay(LoggerWebServer* server) {
     loggerWebFreeGraphs(server);
     loggerWebFreeTodayColumns(server);
     server->show_stats = 0;
+    server->show_today_on_other_pages = 0;
 }
 
 static int normalizeRootDirectory(const char* subdirectory,
@@ -647,6 +650,9 @@ static void sendRawLog(int client_fd, const LoggerWebServer* server) {
     sendEscaped(client_fd, server->title);
     sendAll(client_fd, " Raw Log</h1>");
     sendNav(client_fd, server);
+    if (server->show_today_on_other_pages) {
+        loggerWebSendTodayPanel(client_fd, server);
+    }
     sendAll(client_fd, "<pre class=\"raw-log\">");
 
     //Open the log file and send its contents to the client
@@ -786,6 +792,7 @@ static void sendTemplateLine(int client_fd, const char* line, const LoggerWebSer
     static const char title_placeholder[] = "{{LOGGER_WEB_TITLE}}";
     static const char headers_placeholder[] = "{{LOGGER_WEB_HEADERS}}";
     static const char nav_placeholder[] = "{{LOGGER_WEB_NAV}}";
+    static const char today_placeholder[] = "{{LOGGER_WEB_TODAY}}";
     const char* cursor = line;
 
     //Loop through the line and replace placeholders with dynamic content
@@ -793,11 +800,12 @@ static void sendTemplateLine(int client_fd, const char* line, const LoggerWebSer
         const char* title_at = strstr(cursor, title_placeholder);
         const char* headers_at = strstr(cursor, headers_placeholder);
         const char* nav_at = strstr(cursor, nav_placeholder);
+        const char* today_at = strstr(cursor, today_placeholder);
         const char* next = NULL;
         int placeholder = 0;
 
         //Determine which placeholder comes next in the line and set the next pointer accordingly
-        if (title_at && (!headers_at || title_at < headers_at)) {
+        if (title_at) {
             next = title_at;
             placeholder = 1;
         }
@@ -808,6 +816,10 @@ static void sendTemplateLine(int client_fd, const char* line, const LoggerWebSer
         if (nav_at && (!next || nav_at < next)) {
             next = nav_at;
             placeholder = 3;
+        }
+        if (today_at && (!next || today_at < next)) {
+            next = today_at;
+            placeholder = 4;
         }
         if (!next) {
             sendAll(client_fd, cursor);
@@ -824,9 +836,14 @@ static void sendTemplateLine(int client_fd, const char* line, const LoggerWebSer
         } else if (placeholder == 2) {
             sendTableHeaders(client_fd, server);
             cursor = next + strlen(headers_placeholder);
-        } else {
+        } else if (placeholder == 3) {
             sendNav(client_fd, server);
             cursor = next + strlen(nav_placeholder);
+        } else {
+            if (server->show_today_on_other_pages) {
+                loggerWebSendTodayPanel(client_fd, server);
+            }
+            cursor = next + strlen(today_placeholder);
         }
     }
 }
@@ -1252,6 +1269,10 @@ char* loggerWebCopyString(const char* value) {
 
 void loggerWebSendAll(int fd, const char* data) {
     sendAll(fd, data);
+}
+
+void loggerWebSendEscaped(int fd, const char* value) {
+    sendEscaped(fd, value);
 }
 
 void loggerWebSendJsonEscaped(int fd, const char* value) {

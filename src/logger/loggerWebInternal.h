@@ -76,6 +76,7 @@ typedef struct {
     size_t graph_capacity;
     int show_stats;
     int show_refresh_button;
+    int show_today_on_other_pages;
     LoggerWebTodayColumn* today_columns;
     size_t today_column_count;
 } LoggerWebServer;
@@ -91,6 +92,7 @@ extern pthread_mutex_t active_server_mutex;
 
 char* loggerWebCopyString(const char* value);
 void loggerWebSendAll(int fd, const char* data);
+void loggerWebSendEscaped(int fd, const char* value);
 void loggerWebSendJsonEscaped(int fd, const char* value);
 size_t loggerWebTotalColumnCount(const LoggerWebServer* server);
 int loggerWebSplitFields(char* line, char** fields, size_t column_count);
@@ -114,6 +116,7 @@ LoggerWebGraphRange loggerWebParseGraphRange(const char* request);
 void loggerWebSendGraphData(int client_fd,
                             const LoggerWebServer* server,
                             LoggerWebGraphRange range);
+void loggerWebSendTodayPanel(int client_fd, const LoggerWebServer* server);
 
 #endif
 

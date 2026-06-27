@@ -7,6 +7,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define LOGGER_WEB_TODAY_MAX_COLUMNS 16
+
 static void freeGraph(LoggerWebGraph* graph);
 static LoggerWebGraph* findGraphByTitle(LoggerWebServer* server, const char* title);
 static int appendGraphVert(LoggerWebGraph* graph,
@@ -28,6 +30,11 @@ static int graphRangeWindow(LoggerWebGraphRange range,
 static int graphDayWindow(time_t now, time_t* range_start, time_t* range_end);
 static int localDayStart(time_t value, int day_offset, time_t* out);
 static int graphStatsWindow(time_t now, time_t* window_start, time_t* window_end);
+static int readTodayValues(const LoggerWebServer* server,
+                           double* values,
+                           int* has_value,
+                           char* latest_time,
+                           size_t latest_time_size);
 static void writeGraphJson(int client_fd,
                            const LoggerWebServer* server,
                            const LoggerWebGraph* graph,
@@ -211,7 +218,8 @@ int loggerWebShowSpan(const char* graph_title,
 }
 
 int loggerWebShowToday(const char* const* columns,
-                       size_t column_count) {
+                       size_t column_count,
+                       int show_on_other_pages) {
     if (column_count > 0 && !columns) {
         return 0;
     }
@@ -257,6 +265,7 @@ int loggerWebShowToday(const char* const* columns,
     loggerWebFreeTodayColumns(server);
     server->today_columns = next_columns;
     server->today_column_count = column_count;
+    server->show_today_on_other_pages = show_on_other_pages != 0;
     pthread_mutex_unlock(&active_server_mutex);
     return 1;
 }
@@ -397,6 +406,50 @@ void loggerWebSendGraphData(int client_fd,
     pthread_mutex_unlock(&active_server_mutex);
 
     loggerWebSendAll(client_fd, "]}");
+}
+
+void loggerWebSendTodayPanel(int client_fd, const LoggerWebServer* server) {
+    if (!server) {
+        return;
+    }
+
+    pthread_mutex_lock(&active_server_mutex);
+    double values[LOGGER_WEB_TODAY_MAX_COLUMNS] = {0};
+    int has_value[LOGGER_WEB_TODAY_MAX_COLUMNS] = {0};
+    char latest_time[128] = "";
+    if (!readTodayValues(server,
+                         values,
+                         has_value,
+                         latest_time,
+                         sizeof(latest_time))) {
+        pthread_mutex_unlock(&active_server_mutex);
+        return;
+    }
+
+    loggerWebSendAll(client_fd, "<section class=\"today-panel\">");
+    loggerWebSendAll(client_fd, "<div class=\"today-heading\">Current readings</div>");
+    loggerWebSendAll(client_fd, "<div class=\"today-readings\">");
+    for (size_t i = 0; i < server->today_column_count; i++) {
+        loggerWebSendAll(client_fd, "<div class=\"today-reading\"><span class=\"today-label\">");
+        loggerWebSendEscaped(client_fd, server->today_columns[i].name);
+        loggerWebSendAll(client_fd, "</span><span class=\"today-value\">");
+        if (has_value[i]) {
+            char number[64];
+            snprintf(number, sizeof(number), "%.17g", values[i]);
+            loggerWebSendEscaped(client_fd, number);
+        } else {
+            loggerWebSendAll(client_fd, "--");
+        }
+        loggerWebSendAll(client_fd, "</span></div>");
+    }
+    loggerWebSendAll(client_fd, "</div>");
+    if (latest_time[0]) {
+        loggerWebSendAll(client_fd, "<div class=\"today-updated\">Updated ");
+        loggerWebSendEscaped(client_fd, latest_time);
+        loggerWebSendAll(client_fd, "</div>");
+    }
+    loggerWebSendAll(client_fd, "</section>");
+    pthread_mutex_unlock(&active_server_mutex);
 }
 
 static void freeGraph(LoggerWebGraph* graph) {
@@ -1069,21 +1122,24 @@ static void writeGraphSpansJson(int client_fd,
     }
 }
 
-static void writeTodayJson(int client_fd, const LoggerWebServer* server) {
-    if (server->today_column_count == 0) {
-        loggerWebSendAll(client_fd, "null");
-        return;
+static int readTodayValues(const LoggerWebServer* server,
+                           double* values,
+                           int* has_value,
+                           char* latest_time,
+                           size_t latest_time_size) {
+    if (!server || !values || !has_value || !latest_time || latest_time_size == 0 ||
+        server->today_column_count == 0 ||
+        server->today_column_count > LOGGER_WEB_TODAY_MAX_COLUMNS) {
+        return 0;
     }
 
-    if (server->today_column_count > 16) {
-        loggerWebSendAll(client_fd, "null");
-        return;
+    latest_time[0] = '\0';
+    for (size_t i = 0; i < LOGGER_WEB_TODAY_MAX_COLUMNS; i++) {
+        values[i] = 0.0;
+        has_value[i] = 0;
     }
 
     size_t column_count = loggerWebTotalColumnCount(server);
-    double values[16] = {0};
-    int has_value[16] = {0};
-    char latest_time[128] = "";
     FILE* file = fopen(server->log_path, "r");
     if (file) {
         char** fields = calloc(column_count, sizeof(*fields));
@@ -1098,8 +1154,8 @@ static void writeTodayJson(int client_fd, const LoggerWebServer* server) {
             time_t logged_at = 0;
             int has_logged_at = loggerWebParseUnixTime(fields[LOGGER_WEB_UNIX_FIELD], &logged_at);
             int any_value = 0;
-            double row_values[16] = {0};
-            int row_has_value[16] = {0};
+            double row_values[LOGGER_WEB_TODAY_MAX_COLUMNS] = {0};
+            int row_has_value[LOGGER_WEB_TODAY_MAX_COLUMNS] = {0};
 
             for (size_t i = 0; i < server->today_column_count; i++) {
                 const char* field = loggerWebFieldForColumn(
@@ -1120,12 +1176,15 @@ static void writeTodayJson(int client_fd, const LoggerWebServer* server) {
                 has_value[i] = row_has_value[i];
             }
             if (has_logged_at) {
-                loggerWebFormatUnixTime(logged_at, latest_time, sizeof(latest_time));
+                loggerWebFormatUnixTime(logged_at, latest_time, latest_time_size);
             } else if (loggerWebRowHasSplitDateTime(fields)) {
-                snprintf(latest_time, sizeof(latest_time), "%s", fields[LOGGER_WEB_TIME_FIELD]);
+                snprintf(latest_time,
+                         latest_time_size,
+                         "%s",
+                         fields[LOGGER_WEB_TIME_FIELD]);
             } else {
                 snprintf(latest_time,
-                         sizeof(latest_time),
+                         latest_time_size,
                          "%s",
                          fields[LOGGER_WEB_DATE_FIELD] ? fields[LOGGER_WEB_DATE_FIELD] : "");
             }
@@ -1133,6 +1192,22 @@ static void writeTodayJson(int client_fd, const LoggerWebServer* server) {
 
         free(fields);
         fclose(file);
+    }
+
+    return 1;
+}
+
+static void writeTodayJson(int client_fd, const LoggerWebServer* server) {
+    double values[LOGGER_WEB_TODAY_MAX_COLUMNS] = {0};
+    int has_value[LOGGER_WEB_TODAY_MAX_COLUMNS] = {0};
+    char latest_time[128] = "";
+    if (!readTodayValues(server,
+                         values,
+                         has_value,
+                         latest_time,
+                         sizeof(latest_time))) {
+        loggerWebSendAll(client_fd, "null");
+        return;
     }
 
     loggerWebSendAll(client_fd, "{\"time\":\"");
