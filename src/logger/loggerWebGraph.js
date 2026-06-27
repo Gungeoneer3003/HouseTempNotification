@@ -2,10 +2,13 @@
     const root = document.getElementById("graphs");
     const todayRoot = document.getElementById("today");
     const colors = ["#22c55e", "#38bdf8", "#f59e0b", "#e879f9", "#f43f5e", "#a3e635"];
+    const rangeDay = "day";
+    const rangeThreeDays = "three-days";
+    const rangeWeek = "week";
     const charts = [];
     let currentGraphs = [];
     let currentToday = null;
-    let currentRange = "day";
+    let currentRange = rangeDay;
     let currentRangeStart = null;
     let currentRangeEnd = null;
     let loadingGraphs = false;
@@ -128,7 +131,7 @@
             }
 
             const data = await response.json();
-            currentRange = data.range === "week" ? "week" : "day";
+            currentRange = normalizeRange(data.range);
             currentRangeStart = finiteNumber(data.rangeStartUnix);
             currentRangeEnd = finiteNumber(data.rangeEndUnix);
             currentToday = data.today || null;
@@ -146,6 +149,10 @@
     function graphDataRequestUrl() {
         const separator = graphDataUrl.includes("?") ? "&" : "?";
         return `${graphDataUrl}${separator}range=${encodeURIComponent(currentRange)}`;
+    }
+
+    function normalizeRange(value) {
+        return value === rangeThreeDays || value === rangeWeek ? value : rangeDay;
     }
 
     function renderToday(value) {
@@ -255,8 +262,9 @@
                 loadGraphs();
             }));
         }
-        actions.appendChild(rangeButton("day", "Show Day"));
-        actions.appendChild(rangeButton("week", "Show Week"));
+        actions.appendChild(rangeButton(rangeDay, "Show Day"));
+        actions.appendChild(rangeButton(rangeThreeDays, "Show Three Days"));
+        actions.appendChild(rangeButton(rangeWeek, "Show Week"));
 
         return actions;
     }
@@ -369,15 +377,16 @@
                             color: "#cbd5e1",
                             maxRotation: 0,
                             autoSkip: false,
-                            maxTicksLimit: currentRange === "week" ? 8 : 13,
-                            stepSize: currentRange === "week" ? 24 * 60 * 60 : 2 * 60 * 60,
-                            callback: function (value) {
-                                return formatAxisTick(value);
+                            maxTicksLimit: xAxisMaxTicks(),
+                            padding: 8,
+                            stepSize: xAxisStepSize(),
+                            callback: function (value, index, ticks) {
+                                return formatAxisTick(value, index, ticks);
                             }
                         },
                         title: {
                             display: true,
-                            text: currentRange === "week" ? "Day" : (graph.xColumn || "Time"),
+                            text: xAxisTitle(graph),
                             color: "#cbd5e1"
                         }
                     },
@@ -528,8 +537,12 @@
             return [];
         }
 
-        return currentRange === "week"
-            ? buildDailyTicks(start, end)
+        if (currentRange === rangeWeek) {
+            return buildDailyTicks(start, end);
+        }
+
+        return currentRange === rangeThreeDays
+            ? buildTwelveHourTicks(start, end)
             : buildHourlyTicks(start, end);
     }
 
@@ -557,13 +570,30 @@
         const base = new Date(start * 1000);
         base.setHours(0, 0, 0, 0);
 
-        for (let day = 0; day < 7; day++) {
+        for (let day = 0; day < 10; day++) {
             const tick = new Date(base.getTime());
             tick.setDate(base.getDate() + day);
             const value = tick.getTime() / 1000;
             if (value >= start && value < end) {
                 ticks.push(value);
             }
+        }
+
+        return ticks;
+    }
+
+    function buildTwelveHourTicks(start, end) {
+        const ticks = [];
+        const tick = new Date(start * 1000);
+        tick.setMinutes(0, 0, 0);
+        tick.setHours(tick.getHours() >= 12 ? 12 : 0);
+        if (tick.getTime() / 1000 < start) {
+            tick.setHours(tick.getHours() + 12);
+        }
+
+        while (tick.getTime() / 1000 < end) {
+            ticks.push(tick.getTime() / 1000);
+            tick.setHours(tick.getHours() + 12);
         }
 
         return ticks;
@@ -579,19 +609,52 @@
         return Number.isFinite(refreshMs) && refreshMs > 0 ? refreshMs : 150000;
     }
 
-    function formatAxisTick(value) {
+    function formatAxisTick(value, index, ticks) {
         const seconds = finiteNumber(value);
         if (seconds === null) {
             return "";
         }
 
-        return currentRange === "week" ? formatWeekday(seconds) : formatHour(seconds);
+        const parts = axisTickParts(seconds);
+        return staggerAxisLabel(parts, index, ticks);
+    }
+
+    function axisTickParts(seconds) {
+        if (currentRange === rangeWeek) {
+            return [formatWeekday(seconds)];
+        }
+
+        if (currentRange === rangeThreeDays) {
+            return [formatWeekday(seconds), formatHour(seconds)];
+        }
+
+        return [formatHour(seconds)];
+    }
+
+    function staggerAxisLabel(parts, index, ticks) {
+        const labelParts = parts.filter(Boolean);
+        if (labelParts.length === 0) {
+            return "";
+        }
+
+        if (!Array.isArray(ticks) || ticks.length <= 3) {
+            return labelParts.length === 1 ? labelParts[0] : labelParts;
+        }
+
+        return index % 2 === 0 ? labelParts.concat("") : [""].concat(labelParts);
     }
 
     function formatGraphDateTime(seconds) {
-        const options = currentRange === "week"
-            ? { weekday: "long", hour: "numeric", minute: "2-digit", hour12: true }
-            : { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true };
+        const options = currentRange === rangeDay
+            ? { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true }
+            : {
+                weekday: "long",
+                month: "short",
+                day: "numeric",
+                hour: "numeric",
+                minute: "2-digit",
+                hour12: true
+            };
         return formatDate(seconds, options);
     }
 
@@ -600,7 +663,31 @@
     }
 
     function formatWeekday(seconds) {
-        return formatDate(seconds, { weekday: "long" });
+        return formatDate(seconds, { weekday: "short" });
+    }
+
+    function xAxisMaxTicks() {
+        if (currentRange === rangeWeek) {
+            return 8;
+        }
+
+        return currentRange === rangeThreeDays ? 7 : 13;
+    }
+
+    function xAxisStepSize() {
+        if (currentRange === rangeWeek) {
+            return 24 * 60 * 60;
+        }
+
+        return currentRange === rangeThreeDays ? 12 * 60 * 60 : 2 * 60 * 60;
+    }
+
+    function xAxisTitle(graph) {
+        if (currentRange === rangeWeek) {
+            return "Day";
+        }
+
+        return currentRange === rangeThreeDays ? "Day / Time" : (graph.xColumn || "Time");
     }
 
     function formatDate(seconds, options) {

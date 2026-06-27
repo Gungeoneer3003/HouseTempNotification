@@ -192,6 +192,7 @@ typedef struct {
 
 typedef enum {
     LOGGER_WEB_GRAPH_RANGE_DAY,
+    LOGGER_WEB_GRAPH_RANGE_THREE_DAYS,
     LOGGER_WEB_GRAPH_RANGE_WEEK
 } LoggerWebGraphRange;
 
@@ -951,6 +952,10 @@ static LoggerWebGraphRange parseGraphRange(const char* request) {
             strncmp(cursor, range_prefix, range_prefix_length) == 0) {
             const char* value = cursor + range_prefix_length;
             size_t value_length = param_length - range_prefix_length;
+            if (value_length == 10 && strncmp(value, "three-days", 10) == 0) {
+                return LOGGER_WEB_GRAPH_RANGE_THREE_DAYS;
+            }
+
             if (value_length == 4 && strncmp(value, "week", 4) == 0) {
                 return LOGGER_WEB_GRAPH_RANGE_WEEK;
             }
@@ -968,6 +973,10 @@ static LoggerWebGraphRange parseGraphRange(const char* request) {
 }
 
 static const char* graphRangeName(LoggerWebGraphRange range) {
+    if (range == LOGGER_WEB_GRAPH_RANGE_THREE_DAYS) {
+        return "three-days";
+    }
+
     return range == LOGGER_WEB_GRAPH_RANGE_WEEK ? "week" : "day";
 }
 
@@ -981,6 +990,15 @@ static int graphRangeWindow(LoggerWebGraphRange range,
 
     if (range == LOGGER_WEB_GRAPH_RANGE_DAY) {
         return graphDayWindow(now, range_start, range_end);
+    }
+
+    if (range == LOGGER_WEB_GRAPH_RANGE_THREE_DAYS) {
+        if (!localDayStart(now, -2, range_start) ||
+            !localDayStart(now, 1, range_end)) {
+            return 0;
+        }
+
+        return 1;
     }
 
     if (!localDayStart(now, -6, range_start) ||
@@ -1273,6 +1291,8 @@ static void sendGraphData(int client_fd,
     if (!graphRangeWindow(range, now, &range_start, &range_end)) {
         if (range == LOGGER_WEB_GRAPH_RANGE_WEEK) {
             range_start = now - (time_t)7 * 24 * 60 * 60;
+        } else if (range == LOGGER_WEB_GRAPH_RANGE_THREE_DAYS) {
+            range_start = now - (time_t)3 * 24 * 60 * 60;
         }
     }
     char range_start_label[32];
