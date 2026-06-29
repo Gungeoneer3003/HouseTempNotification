@@ -1,8 +1,8 @@
 #ifndef _WIN32
 #define _POSIX_C_SOURCE 200809L
 
-#include "../loggerWeb.h"
-#include "../loggerWebInternal.h"
+#include "loggerWeb.h"
+#include "loggerWebInternal.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

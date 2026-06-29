@@ -124,6 +124,12 @@ int loggerWebShowToday(const char* const* columns,
 LoggerWebServer* active_server = NULL;
 pthread_mutex_t active_server_mutex = PTHREAD_MUTEX_INITIALIZER;
 
+#define LOGGER_WEB_LOG_TEMPLATE "src/logger/web/html/log.html"
+#define LOGGER_WEB_GRAPHS_TEMPLATE "src/logger/web/html/graphs.html"
+#define LOGGER_WEB_RAW_TEMPLATE "src/logger/web/html/raw.html"
+#define LOGGER_WEB_CSS_FILE "src/logger/web/css/loggerWeb.css"
+#define LOGGER_WEB_GRAPH_SCRIPT_FILE "src/logger/web/js/loggerWebGraph.js"
+
 //Function prototypes
 static int initServerDisplay(LoggerWebServer* server,
                              const char* title,
@@ -147,6 +153,7 @@ static void sendRoot(int client_fd, const LoggerWebServer* server);
 static void sendIndex(int client_fd, const LoggerWebServer* server);
 static void sendGraphs(int client_fd, const LoggerWebServer* server);
 static void sendRawLog(int client_fd, const LoggerWebServer* server);
+static void sendHtmlHeader(int client_fd);
 static void sendNotFound(int client_fd);
 static void sendBytes(int fd, const char* data, size_t length);
 static void sendAll(int fd, const char* data);
@@ -155,8 +162,10 @@ static void sendJsonEscaped(int fd, const char* value);
 static void sendTemplate(int client_fd, const char* path, const LoggerWebServer* server);
 static void sendTemplateLine(int client_fd, const char* line, const LoggerWebServer* server);
 static void sendNav(int client_fd, const LoggerWebServer* server);
+static void sendGraphDataPath(int client_fd, const LoggerWebServer* server);
 static void sendTableHeaders(int client_fd, const LoggerWebServer* server);
 static void sendColspanMessage(int client_fd, size_t column_count, const char* message);
+static void sendRawLogContent(int client_fd, const LoggerWebServer* server);
 static size_t totalColumnCount(const LoggerWebServer* server);
 static size_t displayedColumnCount(const LoggerWebServer* server);
 static int splitFields(char* line, char** fields, size_t column_count);
@@ -177,6 +186,7 @@ static int resolveColumnIndex(const LoggerWebServer* server,
                               const char* column,
                               size_t* index);
 static int stringEqualsIgnoreCase(const char* left, const char* right);
+static void sendStaticFile(int client_fd, const char* content_type, const char* path);
 static void sendCss(int client_fd);
 static void sendGraphScript(int client_fd);
 
@@ -547,9 +557,11 @@ static void handleClient(int client_fd, const LoggerWebServer* server) {
         sendGraphs(client_fd, server);
     } else if (pathEquals(path, "/raw")) {
         sendRawLog(client_fd, server);
-    } else if (pathEquals(path, "/style.css")) {
+    } else if (pathEquals(path, "/css/loggerWeb.css") ||
+               pathEquals(path, "/style.css")) {
         sendCss(client_fd);
-    } else if (pathEquals(path, "/loggerWebGraph.js")) {
+    } else if (pathEquals(path, "/js/loggerWebGraph.js") ||
+               pathEquals(path, "/loggerWebGraph.js")) {
         sendGraphScript(client_fd);
     } else {
         sendNotFound(client_fd);
@@ -567,98 +579,33 @@ static void sendRoot(int client_fd, const LoggerWebServer* server) {
 
 //Send the main index page with the log table
 static void sendIndex(int client_fd, const LoggerWebServer* server) {
+    sendHtmlHeader(client_fd);
+    sendTemplate(client_fd, LOGGER_WEB_LOG_TEMPLATE, server);
+}
+
+static void sendGraphs(int client_fd, const LoggerWebServer* server) {
+    sendHtmlHeader(client_fd);
+    sendTemplate(client_fd, LOGGER_WEB_GRAPHS_TEMPLATE, server);
+}
+
+//Send the raw log file inside a small HTML shell so the normal navigation is available.
+static void sendRawLog(int client_fd, const LoggerWebServer* server) {
+    sendHtmlHeader(client_fd);
+    sendTemplate(client_fd, LOGGER_WEB_RAW_TEMPLATE, server);
+}
+
+static void sendHtmlHeader(int client_fd) {
     sendAll(client_fd,
             "HTTP/1.1 200 OK\r\n"
             "Content-Type: text/html; charset=utf-8\r\n"
             "Cache-Control: no-store\r\n"
             "Connection: close\r\n\r\n");
-
-    sendTemplate(client_fd, "src/logger/loggerWeb.html", server);
-
-    //Write the log rows into the table
-    writeLogRows(client_fd, server);
-
-    sendAll(client_fd,
-            "</tbody>"
-            "</table>"
-            "</body>"
-            "</html>");
 }
 
-static void sendGraphs(int client_fd, const LoggerWebServer* server) {
-    sendAll(client_fd,
-            "HTTP/1.1 200 OK\r\n"
-            "Content-Type: text/html; charset=utf-8\r\n"
-            "Cache-Control: no-store\r\n"
-            "Connection: close\r\n\r\n"
-            "<!doctype html>"
-            "<html>"
-            "<head>"
-            "<meta charset=\"utf-8\">"
-            "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
-            "<title>");
-    sendEscaped(client_fd, server->title);
-    sendAll(client_fd,
-            " - Graphs</title>"
-            "<link rel=\"stylesheet\" href=\"/style.css\">"
-            "</head>"
-            "<body>"
-            "<h1>");
-    sendEscaped(client_fd, server->title);
-    sendAll(client_fd, " Graphs</h1>");
-    sendAll(client_fd, "<section id=\"today\" class=\"today-panel is-hidden\"></section>");
-    sendNav(client_fd, server);
-    const char* graph_data_path = rootDirectoryEquals(server, LOGGER_WEB_ROOT_GRAPHS)
-        ? "/data"
-        : "/graphs/data";
-    sendAll(client_fd,
-            "<main id=\"graphs\" class=\"graphs\" data-graph-data-url=\"");
-    sendAll(client_fd, graph_data_path);
-    sendAll(client_fd,
-            "\" data-refresh-ms=\"150000\" data-show-refresh-button=\"");
-    sendAll(client_fd, server->show_refresh_button ? "1" : "0");
-    sendAll(client_fd,
-            "\">"
-            "<p class=\"empty\">Loading graphs...</p>"
-            "</main>"
-            "<script src=\"https://cdn.jsdelivr.net/npm/chart.js\"></script>"
-            "<script src=\"/loggerWebGraph.js\"></script>"
-            "</body>"
-            "</html>");
-}
-
-//Send the raw log file inside a small HTML shell so the normal navigation is available.
-static void sendRawLog(int client_fd, const LoggerWebServer* server) {
-    sendAll(client_fd,
-            "HTTP/1.1 200 OK\r\n"
-            "Content-Type: text/html; charset=utf-8\r\n"
-            "Cache-Control: no-store\r\n"
-            "Connection: close\r\n\r\n"
-            "<!doctype html>"
-            "<html>"
-            "<head>"
-            "<meta charset=\"utf-8\">"
-            "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
-            "<title>");
-    sendEscaped(client_fd, server->title);
-    sendAll(client_fd,
-            " - Raw Log</title>"
-            "<link rel=\"stylesheet\" href=\"/style.css\">"
-            "</head>"
-            "<body>"
-            "<h1>");
-    sendEscaped(client_fd, server->title);
-    sendAll(client_fd, " Raw Log</h1>");
-    sendNav(client_fd, server);
-    if (server->show_today_on_other_pages) {
-        loggerWebSendTodayPanel(client_fd, server);
-    }
-    sendAll(client_fd, "<pre class=\"raw-log\">");
-
+static void sendRawLogContent(int client_fd, const LoggerWebServer* server) {
     //Open the log file and send its contents to the client
     FILE* file = fopen(server->log_path, "r");
     if (!file) {
-        sendAll(client_fd, "</pre></body></html>");
         return;
     }
 
@@ -670,7 +617,6 @@ static void sendRawLog(int client_fd, const LoggerWebServer* server) {
 
     //Clean up
     fclose(file);
-    sendAll(client_fd, "</pre></body></html>");
 }
 
 //Send a 404 Not Found response to the client
@@ -793,33 +739,37 @@ static void sendTemplateLine(int client_fd, const char* line, const LoggerWebSer
     static const char headers_placeholder[] = "{{LOGGER_WEB_HEADERS}}";
     static const char nav_placeholder[] = "{{LOGGER_WEB_NAV}}";
     static const char today_placeholder[] = "{{LOGGER_WEB_TODAY}}";
+    static const char log_rows_placeholder[] = "{{LOGGER_WEB_LOG_ROWS}}";
+    static const char raw_log_placeholder[] = "{{LOGGER_WEB_RAW_LOG}}";
+    static const char graph_data_path_placeholder[] = "{{LOGGER_WEB_GRAPH_DATA_PATH}}";
+    static const char refresh_button_placeholder[] = "{{LOGGER_WEB_SHOW_REFRESH_BUTTON}}";
+    static const struct {
+        const char* text;
+        int type;
+    } placeholders[] = {
+        {title_placeholder, 1},
+        {headers_placeholder, 2},
+        {nav_placeholder, 3},
+        {today_placeholder, 4},
+        {log_rows_placeholder, 5},
+        {raw_log_placeholder, 6},
+        {graph_data_path_placeholder, 7},
+        {refresh_button_placeholder, 8}
+    };
     const char* cursor = line;
 
     //Loop through the line and replace placeholders with dynamic content
     for (;;) {
-        const char* title_at = strstr(cursor, title_placeholder);
-        const char* headers_at = strstr(cursor, headers_placeholder);
-        const char* nav_at = strstr(cursor, nav_placeholder);
-        const char* today_at = strstr(cursor, today_placeholder);
         const char* next = NULL;
-        int placeholder = 0;
+        size_t placeholder_index = SIZE_MAX;
 
-        //Determine which placeholder comes next in the line and set the next pointer accordingly
-        if (title_at) {
-            next = title_at;
-            placeholder = 1;
-        }
-        if (headers_at && (!next || headers_at < next)) {
-            next = headers_at;
-            placeholder = 2;
-        }
-        if (nav_at && (!next || nav_at < next)) {
-            next = nav_at;
-            placeholder = 3;
-        }
-        if (today_at && (!next || today_at < next)) {
-            next = today_at;
-            placeholder = 4;
+        //Determine which placeholder comes next in the line.
+        for (size_t i = 0; i < sizeof(placeholders) / sizeof(placeholders[0]); i++) {
+            const char* at = strstr(cursor, placeholders[i].text);
+            if (at && (!next || at < next)) {
+                next = at;
+                placeholder_index = i;
+            }
         }
         if (!next) {
             sendAll(client_fd, cursor);
@@ -830,21 +780,27 @@ static void sendTemplateLine(int client_fd, const char* line, const LoggerWebSer
         sendBytes(client_fd, cursor, (size_t)(next - cursor));
 
         //Replace the placeholder with the appropriate dynamic content
-        if (placeholder == 1) {
+        if (placeholders[placeholder_index].type == 1) {
             sendEscaped(client_fd, server->title);
-            cursor = next + strlen(title_placeholder);
-        } else if (placeholder == 2) {
+        } else if (placeholders[placeholder_index].type == 2) {
             sendTableHeaders(client_fd, server);
-            cursor = next + strlen(headers_placeholder);
-        } else if (placeholder == 3) {
+        } else if (placeholders[placeholder_index].type == 3) {
             sendNav(client_fd, server);
-            cursor = next + strlen(nav_placeholder);
-        } else {
+        } else if (placeholders[placeholder_index].type == 4) {
             if (server->show_today_on_other_pages) {
                 loggerWebSendTodayPanel(client_fd, server);
             }
-            cursor = next + strlen(today_placeholder);
+        } else if (placeholders[placeholder_index].type == 5) {
+            writeLogRows(client_fd, server);
+        } else if (placeholders[placeholder_index].type == 6) {
+            sendRawLogContent(client_fd, server);
+        } else if (placeholders[placeholder_index].type == 7) {
+            sendGraphDataPath(client_fd, server);
+        } else if (placeholders[placeholder_index].type == 8) {
+            sendAll(client_fd, server->show_refresh_button ? "1" : "0");
         }
+
+        cursor = next + strlen(placeholders[placeholder_index].text);
     }
 }
 
@@ -863,6 +819,11 @@ static void sendNav(int client_fd, const LoggerWebServer* server) {
         sendAll(client_fd, "\">Graphs</a>");
     }
     sendAll(client_fd, "</p>");
+}
+
+static void sendGraphDataPath(int client_fd, const LoggerWebServer* server) {
+    sendAll(client_fd,
+            rootDirectoryEquals(server, LOGGER_WEB_ROOT_GRAPHS) ? "/data" : "/graphs/data");
 }
 
 //Send the table header row with the column headers
@@ -1329,49 +1290,38 @@ int loggerWebStringEqualsIgnoreCase(const char* left, const char* right) {
     return stringEqualsIgnoreCase(left, right);
 }
 
-//Send the CSS stylesheet to the client
-static void sendCss(int client_fd) {
-    //Send the HTTP response headers for a CSS file
+static void sendStaticFile(int client_fd, const char* content_type, const char* path) {
     sendAll(client_fd,
             "HTTP/1.1 200 OK\r\n"
-            "Content-Type: text/css; charset=utf-8\r\n"
+            "Content-Type: ");
+    sendAll(client_fd, content_type);
+    sendAll(client_fd,
+            "\r\n"
             "Cache-Control: no-store\r\n"
             "Connection: close\r\n\r\n");
 
-    //Open the CSS file and send its contents to the client
-    FILE* file = fopen("src/logger/loggerWeb.css", "r");
+    FILE* file = fopen(path, "r");
     if (!file) {
         return;
     }
 
-    //Read the CSS file line by line and send it to the client
     char buffer[2048];
     while (fgets(buffer, sizeof(buffer), file)) {
         sendAll(client_fd, buffer);
     }
 
-    //Clean up
     fclose(file);
 }
 
+//Send the CSS stylesheet to the client
+static void sendCss(int client_fd) {
+    sendStaticFile(client_fd, "text/css; charset=utf-8", LOGGER_WEB_CSS_FILE);
+}
+
 static void sendGraphScript(int client_fd) {
-    sendAll(client_fd,
-            "HTTP/1.1 200 OK\r\n"
-            "Content-Type: application/javascript; charset=utf-8\r\n"
-            "Cache-Control: no-store\r\n"
-            "Connection: close\r\n\r\n");
-
-    FILE* file = fopen("src/logger/graph/loggerWebGraph.js", "r");
-    if (!file) {
-        return;
-    }
-
-    char buffer[2048];
-    while (fgets(buffer, sizeof(buffer), file)) {
-        sendAll(client_fd, buffer);
-    }
-
-    fclose(file);
+    sendStaticFile(client_fd,
+                   "application/javascript; charset=utf-8",
+                   LOGGER_WEB_GRAPH_SCRIPT_FILE);
 }
 
 #endif

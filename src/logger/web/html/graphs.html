@@ -1,0 +1,23 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>{{LOGGER_WEB_TITLE}} - Graphs</title>
+    <link rel="stylesheet" href="/css/loggerWeb.css">
+</head>
+<body>
+    <h1>{{LOGGER_WEB_TITLE}} Graphs</h1>
+    <section id="today" class="today-panel is-hidden"></section>
+    {{LOGGER_WEB_NAV}}
+    <main id="graphs"
+          class="graphs"
+          data-graph-data-url="{{LOGGER_WEB_GRAPH_DATA_PATH}}"
+          data-refresh-ms="150000"
+          data-show-refresh-button="{{LOGGER_WEB_SHOW_REFRESH_BUTTON}}">
+        <p class="empty">Loading graphs...</p>
+    </main>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="/js/loggerWebGraph.js"></script>
+</body>
+</html>

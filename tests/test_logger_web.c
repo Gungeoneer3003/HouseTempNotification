@@ -7,7 +7,7 @@
 #include <unistd.h>
 #endif
 
-#include "loggerWeb.h"
+#include "web/loggerWeb.h"
 
 int main(int argc, char** argv) {
     if (argc != 3) {
