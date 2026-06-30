@@ -113,10 +113,19 @@ int loggerWebShowSpan(const char* graph_title,
 
 int loggerWebShowToday(const char* const* columns,
                        size_t column_count,
-                       int show_on_other_pages) {
+                       int show_on_other_pages,
+                       int show_controls) {
     (void)columns;
     (void)column_count;
     (void)show_on_other_pages;
+    (void)show_controls;
+
+    fprintf(stderr, "Logger web graphs are not supported on Windows\n");
+    return 0;
+}
+
+int loggerWebSetTodayControls(const LoggerWebTodayControls* controls) {
+    (void)controls;
 
     fprintf(stderr, "Logger web graphs are not supported on Windows\n");
     return 0;
@@ -311,6 +320,8 @@ static void freeServerDisplay(LoggerWebServer* server) {
     loggerWebFreeTodayColumns(server);
     server->show_stats = 0;
     server->show_today_on_other_pages = 0;
+    server->show_today_controls = 0;
+    memset(&server->today_controls, 0, sizeof(server->today_controls));
 }
 
 //Normalize the root directory string by removing leading and trailing slashes

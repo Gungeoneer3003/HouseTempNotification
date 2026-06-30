@@ -167,12 +167,27 @@
             return;
         }
 
-        todayRoot.classList.remove("is-hidden");
+        const controls = today.controls && today.controls.enabled ? today.controls : null;
+        todayRoot.className = controls ? "today-panel today-panel--controls" : "today-panel";
 
+        //The graph refresh mirrors the server-rendered Today markup so controls do not disappear after polling.
+        const main = controls ? document.createElement("div") : todayRoot;
+        if (controls) {
+            main.className = "today-main";
+            todayRoot.appendChild(main);
+        }
+
+        renderTodayReadings(main, today);
+        if (controls) {
+            todayRoot.appendChild(createTodayControls(controls));
+        }
+    }
+
+    function renderTodayReadings(parent, today) {
         const heading = document.createElement("div");
         heading.className = "today-heading";
         heading.textContent = "Current readings";
-        todayRoot.appendChild(heading);
+        parent.appendChild(heading);
 
         const readings = document.createElement("div");
         readings.className = "today-readings";
@@ -191,14 +206,84 @@
             item.appendChild(number);
             readings.appendChild(item);
         });
-        todayRoot.appendChild(readings);
+        parent.appendChild(readings);
 
         if (today.time) {
             const updated = document.createElement("div");
             updated.className = "today-updated";
             updated.textContent = `Updated ${today.time}`;
-            todayRoot.appendChild(updated);
+            parent.appendChild(updated);
         }
+    }
+
+    function createTodayControls(controls) {
+        const wrapper = document.createElement("div");
+        wrapper.className = "today-controls";
+        wrapper.setAttribute("aria-label", "Fan controls");
+
+        const speedBox = document.createElement("div");
+        speedBox.className = "today-control-box today-speed-box";
+
+        const readout = document.createElement("div");
+        readout.className = "today-speed-readout";
+        const label = document.createElement("span");
+        label.className = "today-label";
+        label.textContent = "Fan speed";
+        readout.appendChild(label);
+        const value = document.createElement("span");
+        value.className = "today-value";
+        value.textContent = Number.isFinite(controls.fanSpeed) ? formatNumber(controls.fanSpeed) : "--";
+        readout.appendChild(value);
+        speedBox.appendChild(readout);
+
+        const stepButtons = document.createElement("div");
+        stepButtons.className = "today-step-buttons";
+        stepButtons.appendChild(createTodayControlButton({
+            className: "today-triangle-button today-triangle-button--up",
+            endpoint: "/today/fan/speed/up",
+            label: "Increase fan speed",
+            enabled: !!controls.canSpeedUp,
+            iconClass: "today-triangle"
+        }));
+        stepButtons.appendChild(createTodayControlButton({
+            className: "today-triangle-button today-triangle-button--down",
+            endpoint: "/today/fan/speed/down",
+            label: "Decrease fan speed",
+            enabled: !!controls.canSpeedDown,
+            iconClass: "today-triangle"
+        }));
+        speedBox.appendChild(stepButtons);
+        wrapper.appendChild(speedBox);
+
+        const powerButton = createTodayControlButton({
+            className: `today-control-box today-power-control ${controls.fanPowerOn ? "is-on" : "is-off"}`,
+            endpoint: "/today/fan/power/toggle",
+            label: "Toggle fan power",
+            enabled: !!controls.canPowerToggle,
+            iconClass: "today-power-icon"
+        });
+        powerButton.setAttribute("aria-pressed", controls.fanPowerOn ? "true" : "false");
+        wrapper.appendChild(powerButton);
+
+        return wrapper;
+    }
+
+    function createTodayControlButton(options) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = options.className;
+        button.setAttribute("data-today-endpoint", options.endpoint);
+        button.setAttribute("aria-label", options.label);
+        if (!options.enabled) {
+            button.disabled = true;
+            button.setAttribute("aria-disabled", "true");
+        }
+
+        const icon = document.createElement("span");
+        icon.className = options.iconClass;
+        icon.setAttribute("aria-hidden", "true");
+        button.appendChild(icon);
+        return button;
     }
 
     function renderGraphs() {

@@ -176,6 +176,18 @@ a {
     border-radius: 6px;
 }
 
+/* Custom Today panels split readings from the fan controls. */
+.today-panel--controls {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: stretch;
+}
+
+.today-main {
+    display: grid;
+    gap: 10px;
+    min-width: 0;
+}
+
 .is-hidden {
     display: none !important;
 }
@@ -210,6 +222,134 @@ a {
     color: #e5e7eb;
     font-size: 22px;
     font-weight: 700;
+}
+
+/* Fan control boxes share the Today panel styling but stay compact enough for the header area. */
+.today-controls {
+    display: grid;
+    grid-template-columns: minmax(104px, 128px) 68px;
+    gap: 10px;
+}
+
+.today-control-box {
+    min-height: 82px;
+    background: #0b1220;
+    border: 1px solid #334155;
+    border-radius: 4px;
+}
+
+.today-speed-box {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 34px;
+    gap: 8px;
+    align-items: center;
+    padding: 10px;
+}
+
+.today-speed-readout {
+    display: grid;
+    gap: 3px;
+    min-width: 0;
+}
+
+.today-step-buttons {
+    display: grid;
+    gap: 6px;
+}
+
+.today-triangle-button,
+.today-power-control {
+    display: grid;
+    place-items: center;
+    color: #e5e7eb;
+    background: #111827;
+    border: 1px solid #334155;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.today-triangle-button {
+    width: 32px;
+    height: 30px;
+}
+
+.today-triangle-button:hover:not(:disabled),
+.today-triangle-button:focus-visible:not(:disabled),
+.today-power-control:hover:not(:disabled),
+.today-power-control:focus-visible:not(:disabled) {
+    border-color: #93c5fd;
+    outline: 0;
+}
+
+.today-triangle-button:disabled,
+.today-power-control:disabled {
+    cursor: default;
+    opacity: 0.45;
+}
+
+.today-triangle {
+    width: 0;
+    height: 0;
+}
+
+.today-triangle-button--up .today-triangle {
+    border-left: 7px solid transparent;
+    border-right: 7px solid transparent;
+    border-bottom: 10px solid currentColor;
+}
+
+.today-triangle-button--down .today-triangle {
+    border-left: 7px solid transparent;
+    border-right: 7px solid transparent;
+    border-top: 10px solid currentColor;
+}
+
+.today-power-control {
+    width: 68px;
+    min-height: 82px;
+    padding: 0;
+}
+
+.today-power-control.is-on {
+    color: #86efac;
+    border-color: #22c55e;
+    background: rgba(34, 197, 94, 0.14);
+    box-shadow: inset 0 0 0 1px rgba(34, 197, 94, 0.2);
+}
+
+.today-power-icon {
+    position: relative;
+    width: 28px;
+    height: 28px;
+    border: 3px solid currentColor;
+    border-top-color: transparent;
+    border-radius: 999px;
+}
+
+.today-power-icon::before {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: -8px;
+    width: 3px;
+    height: 17px;
+    background: currentColor;
+    border-radius: 999px;
+    transform: translateX(-50%);
+}
+
+.today-control-error {
+    border-color: #f87171 !important;
+}
+
+@media (max-width: 760px) {
+    .today-panel--controls {
+        grid-template-columns: 1fr;
+    }
+
+    .today-controls {
+        grid-template-columns: minmax(0, 1fr) 68px;
+    }
 }
 
 .stats-box {

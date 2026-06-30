@@ -32,6 +32,34 @@ void loggerWebSendNotFound(int client_fd) {
             "Not found\n");
 }
 
+//Send an empty success response for state-changing control requests.
+void loggerWebSendNoContent(int client_fd) {
+    loggerWebSendAll(client_fd,
+            "HTTP/1.1 204 No Content\r\n"
+            "Cache-Control: no-store\r\n"
+            "Connection: close\r\n\r\n");
+}
+
+//Send a short plain-text status response for control failures.
+void loggerWebSendPlainStatus(int client_fd,
+                              int status_code,
+                              const char* reason,
+                              const char* body) {
+    char header[256];
+    int n = snprintf(header,
+                     sizeof(header),
+                     "HTTP/1.1 %d %s\r\n"
+                     "Content-Type: text/plain; charset=utf-8\r\n"
+                     "Cache-Control: no-store\r\n"
+                     "Connection: close\r\n\r\n",
+                     status_code,
+                     reason ? reason : "Error");
+    if (n > 0 && (size_t)n < sizeof(header)) {
+        loggerWebSendAll(client_fd, header);
+    }
+    loggerWebSendAll(client_fd, body ? body : "");
+}
+
 //Send a fixed number of bytes, handling partial socket writes.
 void loggerWebSendBytes(int fd, const char* data, size_t length) {
     size_t remaining = length;

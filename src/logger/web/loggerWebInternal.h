@@ -36,6 +36,7 @@
 #define LOGGER_WEB_RAW_TEMPLATE "src/logger/web/html/raw.html"
 #define LOGGER_WEB_CSS_FILE "src/logger/web/css/loggerWeb.css"
 #define LOGGER_WEB_GRAPH_SCRIPT_FILE "src/logger/web/js/loggerWebGraph.js"
+#define LOGGER_WEB_TODAY_SCRIPT_FILE "src/logger/web/js/loggerWebToday.js"
 
 typedef struct {
     char* name;
@@ -90,6 +91,8 @@ typedef struct {
     int show_stats;
     int show_refresh_button;
     int show_today_on_other_pages;
+    int show_today_controls;
+    LoggerWebTodayControls today_controls;
     LoggerWebTodayColumn* today_columns;
     size_t today_column_count;
 } LoggerWebServer;
@@ -113,6 +116,11 @@ int loggerWebRootDirectoryEquals(const LoggerWebServer* server, const char* subd
 char* loggerWebCopyString(const char* value);
 void loggerWebSendHtmlHeader(int client_fd);
 void loggerWebSendNotFound(int client_fd);
+void loggerWebSendNoContent(int client_fd);
+void loggerWebSendPlainStatus(int client_fd,
+                              int status_code,
+                              const char* reason,
+                              const char* body);
 void loggerWebSendBytes(int fd, const char* data, size_t length);
 void loggerWebSendAll(int fd, const char* data);
 void loggerWebSendEscaped(int fd, const char* value);
@@ -120,6 +128,7 @@ void loggerWebSendJsonEscaped(int fd, const char* value);
 void loggerWebSendStaticFile(int client_fd, const char* content_type, const char* path);
 void loggerWebSendCss(int client_fd);
 void loggerWebSendGraphScript(int client_fd);
+void loggerWebSendTodayScript(int client_fd);
 
 // HTML pages and templates.
 void loggerWebSendIndex(int client_fd, const LoggerWebServer* server, int is_root);
@@ -167,6 +176,9 @@ void loggerWebSendGraphData(int client_fd,
                             LoggerWebGraphRange range);
 int loggerWebShouldShowTodayPanel(const LoggerWebServer* server, int is_root);
 void loggerWebSendTodayPanel(int client_fd, const LoggerWebServer* server);
+void loggerWebHandleTodayControl(int client_fd,
+                                 const LoggerWebServer* server,
+                                 const char* action);
 void loggerWebWriteTodayJson(int client_fd, const LoggerWebServer* server);
 
 #endif

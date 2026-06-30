@@ -18,6 +18,9 @@
 static void *notifyThread(void *arg);
 static int queueNotif(const SensorReading *newReading, time_t newNow, Rec newRec);
 static void setNotifReady(void);
+#if LOGGER_WEB_PORT > 0
+static int loggerWebFanPowerToggle(void* arg);
+#endif
 
 // Globals for the pending notification handoff.
 static SensorReading reading;
@@ -95,10 +98,21 @@ int main(void)
         loggerWebShowVerts("Temperature Overlay", "Event", "close notif", "#8b1a1a");
         loggerWebShowSpan("Temperature Overlay", "Event", "open notif", "close notif", "#176e74");
 
+        //The custom Today layout exposes fan controls beside the current readings.
         loggerWebShowToday(logger_web_today_columns,
                            sizeof(logger_web_today_columns) /
                                sizeof(logger_web_today_columns[0]),
+                           1,
                            1);
+
+        //The house API currently exposes the fan shutoff URL, so only power is wired here.
+        LoggerWebTodayControls logger_web_today_controls = {
+            .speed_up = NULL,
+            .speed_down = NULL,
+            .power_toggle = loggerWebFanPowerToggle,
+            .user = &config
+        };
+        loggerWebSetTodayControls(&logger_web_today_controls);
         loggerWebSetRootDirectory("graphs");
     }
 #endif
@@ -340,3 +354,16 @@ static void setNotifReady(void)
     notifBusy = 0;
     pthread_mutex_unlock(&dataMutex);
 }
+
+#if LOGGER_WEB_PORT > 0
+static int loggerWebFanPowerToggle(void* arg)
+{
+    AppConfig* web_config = (AppConfig*)arg;
+    if (!web_config) {
+        return 0;
+    }
+
+    //Map the web power button to the fan shutoff command already used by notifications.
+    return houseTurnOffFans(web_config);
+}
+#endif

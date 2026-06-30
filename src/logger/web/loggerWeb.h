@@ -3,6 +3,14 @@
 
 #include <stddef.h>
 
+// Optional callbacks used by the custom Today panel fan buttons.
+typedef struct {
+    int (*speed_up)(void* user);
+    int (*speed_down)(void* user);
+    int (*power_toggle)(void* user);
+    void* user;
+} LoggerWebTodayControls;
+
 int loggerWebStart(const char* log_path,
                    unsigned short port,
                    const char* title,
@@ -29,6 +37,9 @@ int loggerWebShowSpan(const char* graph_title,
                       const char* color);
 int loggerWebShowToday(const char* const* columns,
                        size_t column_count,
-                       int show_on_other_pages);
+                       int show_on_other_pages,
+                       int show_controls);
+// Pass NULL to clear any Today panel control callbacks.
+int loggerWebSetTodayControls(const LoggerWebTodayControls* controls);
 
 #endif

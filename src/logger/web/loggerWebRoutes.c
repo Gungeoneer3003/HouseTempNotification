@@ -17,13 +17,30 @@ appropriate response back to the client.
 
 static void sendRoot(int client_fd, const LoggerWebServer* server);
 
-//Parse the request path from the HTTP request string
-static int parseRequestPath(const char* request, char* path, size_t path_size) {
-    if (!request || !path || path_size == 0 || strncmp(request, "GET ", 4) != 0) {
+//Parse the HTTP method and path from the request line.
+static int parseRequest(const char* request,
+                        char* method,
+                        size_t method_size,
+                        char* path,
+                        size_t path_size) {
+    if (!request || !method || method_size == 0 || !path || path_size == 0) {
         return 0;
     }
 
-    const char* start = request + 4;
+    const char* method_end = strchr(request, ' ');
+    if (!method_end || method_end == request) {
+        return 0;
+    }
+
+    size_t method_length = (size_t)(method_end - request);
+    if (method_length >= method_size) {
+        return 0;
+    }
+
+    memcpy(method, request, method_length);
+    method[method_length] = '\0';
+
+    const char* start = method_end + 1;
     if (*start != '/') {
         return 0;
     }
@@ -74,8 +91,28 @@ void loggerWebHandleClient(int client_fd, const LoggerWebServer* server) {
     //Null-terminate the request string so we can safely use string functions on it
     request[bytes] = '\0';
 
+    char method[8];
     char path[LOGGER_WEB_MAX_PATH];
-    if (!parseRequestPath(request, path, sizeof(path))) {
+    if (!parseRequest(request, method, sizeof(method), path, sizeof(path))) {
+        loggerWebSendNotFound(client_fd);
+        return;
+    }
+
+    //Fan controls are state-changing actions, so keep them on POST-only routes.
+    if (strcmp(method, "POST") == 0) {
+        if (pathEquals(path, "/today/fan/speed/up")) {
+            loggerWebHandleTodayControl(client_fd, server, "speed-up");
+        } else if (pathEquals(path, "/today/fan/speed/down")) {
+            loggerWebHandleTodayControl(client_fd, server, "speed-down");
+        } else if (pathEquals(path, "/today/fan/power/toggle")) {
+            loggerWebHandleTodayControl(client_fd, server, "power-toggle");
+        } else {
+            loggerWebSendNotFound(client_fd);
+        }
+        return;
+    }
+
+    if (strcmp(method, "GET") != 0) {
         loggerWebSendNotFound(client_fd);
         return;
     }
@@ -99,6 +136,9 @@ void loggerWebHandleClient(int client_fd, const LoggerWebServer* server) {
     } else if (pathEquals(path, "/js/loggerWebGraph.js") ||
                pathEquals(path, "/loggerWebGraph.js")) {
         loggerWebSendGraphScript(client_fd);
+    } else if (pathEquals(path, "/js/loggerWebToday.js") ||
+               pathEquals(path, "/loggerWebToday.js")) {
+        loggerWebSendTodayScript(client_fd);
     } else {
         loggerWebSendNotFound(client_fd);
     }
