@@ -64,6 +64,11 @@ typedef struct {
 } LoggerWebTodayColumn;
 
 typedef struct {
+    char* label;
+    char* href;
+} LoggerWebNavLink;
+
+typedef struct {
     char* title;
     char* x_column;
     size_t x_index;
@@ -95,6 +100,9 @@ typedef struct {
     LoggerWebTodayControls today_controls;
     LoggerWebTodayColumn* today_columns;
     size_t today_column_count;
+    LoggerWebNavLink* nav_links;
+    size_t nav_link_count;
+    size_t nav_link_capacity;
 } LoggerWebServer;
 
 typedef enum {

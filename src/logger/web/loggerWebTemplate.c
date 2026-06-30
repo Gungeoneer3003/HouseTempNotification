@@ -12,6 +12,11 @@ static void sendTemplateLine(int client_fd,
                              const LoggerWebServer* server,
                              int show_today_panel);
 static void sendGraphDataPath(int client_fd, const LoggerWebServer* server);
+static void sendNavButton(int client_fd,
+                          const char* href,
+                          const char* label,
+                          const char* icon_class,
+                          int is_active);
 
 //Send a template file to the client, replacing placeholders with dynamic content.
 void loggerWebSendTemplate(int client_fd,
@@ -112,16 +117,45 @@ void loggerWebSendNav(int client_fd, const LoggerWebServer* server) {
     const char* graphs_path = loggerWebRootDirectoryEquals(server, LOGGER_WEB_ROOT_GRAPHS)
         ? "/"
         : "/graphs";
+    int log_active = loggerWebRootDirectoryEquals(server, LOGGER_WEB_ROOT_LOG);
+    int graphs_active = loggerWebRootDirectoryEquals(server, LOGGER_WEB_ROOT_GRAPHS);
 
-    loggerWebSendAll(client_fd, "<p class=\"nav\"><a href=\"");
-    loggerWebSendAll(client_fd, log_path);
-    loggerWebSendAll(client_fd, "\">Log</a> <a href=\"/raw\">Raw log</a>");
+    loggerWebSendAll(client_fd, "<nav class=\"nav\" aria-label=\"Views\">");
+    sendNavButton(client_fd, log_path, "Log", "nav-icon--log", log_active);
+    sendNavButton(client_fd, "/raw", "Raw log", "nav-icon--raw", 0);
     if (loggerWebHasGraphs(server)) {
-        loggerWebSendAll(client_fd, " <a href=\"");
-        loggerWebSendAll(client_fd, graphs_path);
-        loggerWebSendAll(client_fd, "\">Graphs</a>");
+        sendNavButton(client_fd, graphs_path, "Graphs", "nav-icon--graphs", graphs_active);
     }
-    loggerWebSendAll(client_fd, "</p>");
+    for (size_t i = 0; i < server->nav_link_count; i++) {
+        sendNavButton(client_fd,
+                      server->nav_links[i].href,
+                      server->nav_links[i].label,
+                      "nav-icon--link",
+                      0);
+    }
+    loggerWebSendAll(client_fd, "</nav>");
+}
+
+static void sendNavButton(int client_fd,
+                          const char* href,
+                          const char* label,
+                          const char* icon_class,
+                          int is_active) {
+    loggerWebSendAll(client_fd, "<a class=\"nav-button");
+    if (is_active) {
+        loggerWebSendAll(client_fd, " is-active");
+    }
+    loggerWebSendAll(client_fd, "\" href=\"");
+    loggerWebSendEscaped(client_fd, href);
+    loggerWebSendAll(client_fd, "\"");
+    if (is_active) {
+        loggerWebSendAll(client_fd, " aria-current=\"page\"");
+    }
+    loggerWebSendAll(client_fd, "><span class=\"nav-icon ");
+    loggerWebSendEscaped(client_fd, icon_class);
+    loggerWebSendAll(client_fd, "\" aria-hidden=\"true\"></span><span>");
+    loggerWebSendEscaped(client_fd, label);
+    loggerWebSendAll(client_fd, "</span></a>");
 }
 
 //Send the graph data endpoint path for the current root directory.

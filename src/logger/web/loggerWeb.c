@@ -46,6 +46,14 @@ int loggerWebSetRootDirectory(const char* subdirectory) {
     return 0;
 }
 
+int loggerWebAddNavLink(const char* label, const char* href) {
+    (void)label;
+    (void)href;
+
+    fprintf(stderr, "Logger web viewer is not supported on Windows\n");
+    return 0;
+}
+
 int loggerWebInsertGraph(const char* title,
                          const char* x_column,
                          const char* y_column) {
@@ -149,6 +157,7 @@ static int initServerDisplay(LoggerWebServer* server,
                              const char* const* column_headers,
                              size_t column_header_count);
 static void freeServerDisplay(LoggerWebServer* server);
+static void freeServerNavLinks(LoggerWebServer* server);
 static int normalizeRootDirectory(const char* subdirectory,
                                   char* output,
                                   size_t output_size);
@@ -236,6 +245,49 @@ int loggerWebSetRootDirectory(const char* subdirectory) {
     return 1;
 }
 
+int loggerWebAddNavLink(const char* label, const char* href) {
+    if (!label || !*label || !href || !*href) {
+        return 0;
+    }
+
+    pthread_mutex_lock(&active_server_mutex);
+    LoggerWebServer* server = active_server;
+    if (!server) {
+        pthread_mutex_unlock(&active_server_mutex);
+        return 0;
+    }
+
+    // Grow the optional custom-link list only when callers actually add links.
+    if (server->nav_link_count == server->nav_link_capacity) {
+        size_t new_capacity = server->nav_link_capacity ? server->nav_link_capacity * 2 : 4;
+        LoggerWebNavLink* new_links = realloc(server->nav_links,
+                                              new_capacity * sizeof(*new_links));
+        if (!new_links) {
+            pthread_mutex_unlock(&active_server_mutex);
+            return 0;
+        }
+
+        server->nav_links = new_links;
+        server->nav_link_capacity = new_capacity;
+    }
+
+    char* label_copy = loggerWebCopyString(label);
+    char* href_copy = loggerWebCopyString(href);
+    if (!label_copy || !href_copy) {
+        free(label_copy);
+        free(href_copy);
+        pthread_mutex_unlock(&active_server_mutex);
+        return 0;
+    }
+
+    server->nav_links[server->nav_link_count].label = label_copy;
+    server->nav_links[server->nav_link_count].href = href_copy;
+    server->nav_link_count++;
+
+    pthread_mutex_unlock(&active_server_mutex);
+    return 1;
+}
+
 //Enable or disable the refresh button on the web interface
 int loggerWebShowRefreshButton(int enabled) {
     pthread_mutex_lock(&active_server_mutex);
@@ -318,10 +370,27 @@ static void freeServerDisplay(LoggerWebServer* server) {
 
     loggerWebFreeGraphs(server);
     loggerWebFreeTodayColumns(server);
+    freeServerNavLinks(server);
     server->show_stats = 0;
     server->show_today_on_other_pages = 0;
     server->show_today_controls = 0;
     memset(&server->today_controls, 0, sizeof(server->today_controls));
+}
+
+static void freeServerNavLinks(LoggerWebServer* server) {
+    if (!server) {
+        return;
+    }
+
+    // Custom nav links are copied at configuration time and released with display state.
+    for (size_t i = 0; i < server->nav_link_count; i++) {
+        free(server->nav_links[i].label);
+        free(server->nav_links[i].href);
+    }
+    free(server->nav_links);
+    server->nav_links = NULL;
+    server->nav_link_count = 0;
+    server->nav_link_capacity = 0;
 }
 
 //Normalize the root directory string by removing leading and trailing slashes

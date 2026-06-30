@@ -17,6 +17,7 @@ int loggerWebStart(const char* log_path,
                    const char* const* column_headers,
                    size_t column_header_count);
 int loggerWebSetRootDirectory(const char* subdirectory);
+int loggerWebAddNavLink(const char* label, const char* href);
 int loggerWebInsertGraph(const char* title,
                          const char* x_column,
                          const char* y_column);
