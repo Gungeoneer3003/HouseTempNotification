@@ -3,6 +3,7 @@
 
 #include "loggerWeb.h"
 #include "loggerWebInternal.h"
+#include <ctype.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -25,6 +26,8 @@ static void formatRootRelativeHref(const LoggerWebServer* server,
                                    const char* subdirectory,
                                    char* output,
                                    size_t output_size);
+static void formatPlainHref(const char* href, char* output, size_t output_size);
+static int hasUriScheme(const char* href);
 
 //Send a template file to the client, replacing placeholders with dynamic content.
 void loggerWebSendTemplate(int client_fd,
@@ -144,12 +147,13 @@ static void sendCustomNavButton(int client_fd,
                                 const LoggerWebServer* server,
                                 const LoggerWebNavLink* link) {
     char href[LOGGER_WEB_MAX_PATH];
-    const char* rendered_href = link->href;
+    const char* rendered_href = href;
 
     // Root-relative custom links follow whichever built-in page owns "/".
     if (link->root_relative) {
         formatRootRelativeHref(server, link->href, href, sizeof(href));
-        rendered_href = href;
+    } else {
+        formatPlainHref(link->href, href, sizeof(href));
     }
 
     sendNavButton(client_fd, rendered_href, link->label, "nav-icon--link", 0);
@@ -168,6 +172,36 @@ static void formatRootRelativeHref(const LoggerWebServer* server,
     } else {
         snprintf(output, output_size, "/%s", subdirectory ? subdirectory : "");
     }
+}
+
+static void formatPlainHref(const char* href, char* output, size_t output_size) {
+    if (!href || !output || output_size == 0) {
+        return;
+    }
+
+    // Browser hrefs without a scheme are relative, so host/IP links need http://.
+    if (hasUriScheme(href) || href[0] == '/' || href[0] == '#' || href[0] == '?') {
+        snprintf(output, output_size, "%s", href);
+    } else {
+        snprintf(output, output_size, "http://%s", href);
+    }
+}
+
+static int hasUriScheme(const char* href) {
+    if (!href || !isalpha((unsigned char)href[0])) {
+        return 0;
+    }
+
+    for (const char* p = href + 1; *p; p++) {
+        if (*p == ':') {
+            return 1;
+        }
+        if (!(isalnum((unsigned char)*p) || *p == '+' || *p == '-' || *p == '.')) {
+            return 0;
+        }
+    }
+
+    return 0;
 }
 
 static void sendNavButton(int client_fd,
