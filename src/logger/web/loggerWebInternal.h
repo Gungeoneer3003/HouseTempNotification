@@ -1,3 +1,8 @@
+//Statement of purpose:
+ /*
+  * The purpose of this file is to provide internal declarations 
+  * for the logger web server.
+  */
 #ifndef LOGGER_WEB_INTERNAL_H
 #define LOGGER_WEB_INTERNAL_H
 
@@ -15,6 +20,8 @@
 #define LOGGER_WEB_MAX_LINE 2048
 #endif
 
+//Forward declarations for the logger web server structures
+
 #define LOGGER_WEB_ROOT_LOG "log"
 #define LOGGER_WEB_ROOT_GRAPHS "graphs"
 #define LOGGER_WEB_ROOT_DIRECTORY_SIZE 32
@@ -23,6 +30,12 @@
 #define LOGGER_WEB_DATE_FIELD 1
 #define LOGGER_WEB_TIME_FIELD 2
 #define LOGGER_WEB_DATA_FIELD 3
+
+#define LOGGER_WEB_LOG_TEMPLATE "src/logger/web/html/log.html"
+#define LOGGER_WEB_GRAPHS_TEMPLATE "src/logger/web/html/graphs.html"
+#define LOGGER_WEB_RAW_TEMPLATE "src/logger/web/html/raw.html"
+#define LOGGER_WEB_CSS_FILE "src/logger/web/css/loggerWeb.css"
+#define LOGGER_WEB_GRAPH_SCRIPT_FILE "src/logger/web/js/loggerWebGraph.js"
 
 typedef struct {
     char* name;
@@ -87,13 +100,38 @@ typedef enum {
     LOGGER_WEB_GRAPH_RANGE_WEEK
 } LoggerWebGraphRange;
 
+//Global variables for the active logger web server and its mutex
 extern LoggerWebServer* active_server;
 extern pthread_mutex_t active_server_mutex;
 
+//Function prototypes for internal functions used in the logger web server
+int loggerWebStartServer(LoggerWebServer* server, unsigned short port);
+void loggerWebHandleClient(int client_fd, const LoggerWebServer* server);
+int loggerWebRootDirectoryEquals(const LoggerWebServer* server, const char* subdirectory);
+
+//Function prototypes for utility functions used in the logger web server
 char* loggerWebCopyString(const char* value);
+void loggerWebSendHtmlHeader(int client_fd);
+void loggerWebSendNotFound(int client_fd);
+void loggerWebSendBytes(int fd, const char* data, size_t length);
 void loggerWebSendAll(int fd, const char* data);
 void loggerWebSendEscaped(int fd, const char* value);
 void loggerWebSendJsonEscaped(int fd, const char* value);
+void loggerWebSendStaticFile(int client_fd, const char* content_type, const char* path);
+void loggerWebSendCss(int client_fd);
+void loggerWebSendGraphScript(int client_fd);
+
+//Function prototypes for functions that send specific pages to the client
+void loggerWebSendIndex(int client_fd, const LoggerWebServer* server);
+void loggerWebSendGraphs(int client_fd, const LoggerWebServer* server);
+void loggerWebSendRawLog(int client_fd, const LoggerWebServer* server);
+void loggerWebSendTemplate(int client_fd, const char* path, const LoggerWebServer* server);
+void loggerWebSendNav(int client_fd, const LoggerWebServer* server);
+void loggerWebSendTableHeaders(int client_fd, const LoggerWebServer* server);
+
+//Function prototypes for functions that handle log rows and graph data
+void loggerWebSendLogRows(int client_fd, const LoggerWebServer* server);
+void loggerWebSendRawLogContent(int client_fd, const LoggerWebServer* server);
 size_t loggerWebTotalColumnCount(const LoggerWebServer* server);
 int loggerWebSplitFields(char* line, char** fields, size_t column_count);
 const char* loggerWebFieldForColumn(char** fields, size_t column_index);
@@ -102,6 +140,7 @@ int loggerWebParseDouble(const char* value, double* out);
 int loggerWebParseUnixTime(const char* value, time_t* out);
 int loggerWebLogLocaltime(const time_t* value, struct tm* out);
 void loggerWebFormatUnixLabel(time_t value, char* buffer, size_t buffer_size);
+void loggerWebFormatUnixDate(time_t value, char* buffer, size_t buffer_size);
 void loggerWebFormatUnixTime(time_t value, char* buffer, size_t buffer_size);
 void loggerWebFormatDuration(time_t seconds, char* buffer, size_t buffer_size);
 int loggerWebResolveColumnIndex(const LoggerWebServer* server,
@@ -109,14 +148,22 @@ int loggerWebResolveColumnIndex(const LoggerWebServer* server,
                                 size_t* index);
 int loggerWebStringEqualsIgnoreCase(const char* left, const char* right);
 
+//Function prototypes for functions that handle graphs and today columns
 void loggerWebFreeGraphs(LoggerWebServer* server);
 void loggerWebFreeTodayColumns(LoggerWebServer* server);
 int loggerWebHasGraphs(const LoggerWebServer* server);
 LoggerWebGraphRange loggerWebParseGraphRange(const char* request);
+const char* loggerWebGraphRangeName(LoggerWebGraphRange range);
+int loggerWebGraphRangeWindow(LoggerWebGraphRange range,
+                              time_t now,
+                              time_t* range_start,
+                              time_t* range_end);
+int loggerWebGraphStatsWindow(time_t now, time_t* window_start, time_t* window_end);
 void loggerWebSendGraphData(int client_fd,
                             const LoggerWebServer* server,
                             LoggerWebGraphRange range);
 void loggerWebSendTodayPanel(int client_fd, const LoggerWebServer* server);
+void loggerWebWriteTodayJson(int client_fd, const LoggerWebServer* server);
 
 #endif
 
