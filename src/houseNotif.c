@@ -445,11 +445,11 @@ static int loggerWebWakeFan(const AppConfig* web_config)
             return 0;
         }
 
-        pthread_join(speed_up_thread, NULL);
+        pthread_join(speed_up_thread[i], NULL);
         overallOK &= speed_up.ok;
     }
 
-    return speed_up.ok;
+    return overallOK;
 }
 
 static void* loggerWebFanCommandThread(void* arg)
