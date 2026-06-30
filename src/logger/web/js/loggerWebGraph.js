@@ -347,9 +347,9 @@
                 loadGraphs();
             }));
         }
-        actions.appendChild(rangeButton(rangeDay, "Show Day"));
-        actions.appendChild(rangeButton(rangeThreeDays, "Show Three Days"));
-        actions.appendChild(rangeButton(rangeWeek, "Show Week"));
+        actions.appendChild(rangeButton(rangeDay, "Day"));
+        actions.appendChild(rangeButton(rangeThreeDays, "Three Days"));
+        actions.appendChild(rangeButton(rangeWeek, "Week"));
 
         return actions;
     }

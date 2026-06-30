@@ -83,7 +83,7 @@ int main(void)
     // Start the logger web server if configured
 #if LOGGER_WEB_PORT > 0
     static const char *const logger_web_columns[] = {
-        "House",
+        "Inside",
         "Outside",
         "Attic",
         "Power",
@@ -91,16 +91,16 @@ int main(void)
         "Event",
         "Detail"};
     static const char *const logger_web_temperature_graph_columns[] = {
-        "House",
+        "Inside",
         "Attic",
         "Outside"};
     static const char *const logger_web_today_columns[] = {
-        "House",
+        "Inside",
         "Outside",
         "Attic"};
     if (loggerWebStart(config.log_path,
                        LOGGER_WEB_PORT,
-                       "House Notification Log",
+                       "Airscape Temperatures",
                        logger_web_columns,
                        sizeof(logger_web_columns) / sizeof(logger_web_columns[0]))) {
         loggerWebInsertGraphSeries("Temperature Overlay",
