@@ -1,9 +1,7 @@
 //Statement of Purpose:
 /*
 The purpose of this file is to provide the implementation for
-sending log rows over the web interface. It includes functions to read the
-log file, split log entries into fields, and send the log rows to the client
-in an HTML table format.
+sending HTTP response headers, static files, and escaped response bodies.
 */
 
 #ifndef _WIN32
@@ -16,7 +14,7 @@ in an HTML table format.
 #include <sys/socket.h>
 #include <sys/types.h>
 
-//Html header for the web response
+//HTML header for templated pages.
 void loggerWebSendHtmlHeader(int client_fd) {
     loggerWebSendAll(client_fd,
             "HTTP/1.1 200 OK\r\n"
@@ -25,7 +23,7 @@ void loggerWebSendHtmlHeader(int client_fd) {
             "Connection: close\r\n\r\n");
 }
 
-//Send a 404 Not Found response to the client
+//Send a 404 Not Found response to the client.
 void loggerWebSendNotFound(int client_fd) {
     loggerWebSendAll(client_fd,
             "HTTP/1.1 404 Not Found\r\n"
@@ -34,7 +32,7 @@ void loggerWebSendNotFound(int client_fd) {
             "Not found\n");
 }
 
-//Send a 500 Internal Server Error response to the client
+//Send a fixed number of bytes, handling partial socket writes.
 void loggerWebSendBytes(int fd, const char* data, size_t length) {
     size_t remaining = length;
     const char* cursor = data;
@@ -51,14 +49,13 @@ void loggerWebSendBytes(int fd, const char* data, size_t length) {
     }
 }
 
-//Send a string to the client, ensuring all bytes are sent
+//Send a null-terminated string.
 void loggerWebSendAll(int fd, const char* data) {
     loggerWebSendBytes(fd, data, strlen(data));
 }
 
-//Send a string to the client, escaping HTML special characters
+//Send text with HTML escaping.
 void loggerWebSendEscaped(int fd, const char* value) {
-    //Loop through each character in the string and send it, escaping special characters as needed
     for (const char* p = value; p && *p; p++) {
         switch (*p) {
             case '&':
@@ -82,7 +79,7 @@ void loggerWebSendEscaped(int fd, const char* value) {
     }
 }
 
-//Send a string to the client, escaping JSON special characters
+//Send text with JSON escaping.
 void loggerWebSendJsonEscaped(int fd, const char* value) {
     for (const unsigned char* p = (const unsigned char*)value; p && *p; p++) {
         switch (*p) {
@@ -121,7 +118,7 @@ void loggerWebSendJsonEscaped(int fd, const char* value) {
     }
 }
 
-//Send a static file to the client with the specified content type
+//Send a static file with the specified content type.
 void loggerWebSendStaticFile(int client_fd, const char* content_type, const char* path) {
     loggerWebSendAll(client_fd,
             "HTTP/1.1 200 OK\r\n"

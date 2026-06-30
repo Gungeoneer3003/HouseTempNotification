@@ -1,9 +1,9 @@
 //Statement of Purpose
 /*
-The purpose of this file is to provide the implementation of the 
-logger web interface. It includes functions to start the web server, 
-handle incoming requests, and serve log data and static assets 
-(CSS and JavaScript) to clients.
+The purpose of this file is to provide the public logger web facade.
+It owns server initialization and high-level display settings; routing,
+responses, assets, log rows, time helpers, and graph behavior live in
+the neighboring web modules.
 */
 
 #ifndef _WIN32
@@ -20,8 +20,7 @@ handle incoming requests, and serve log data and static assets
 #include <string.h>
 #include <time.h>
 
-//Check if this is the right platform
-//For the time being, there's no support for Windows
+//For the time being, there's no support for Windows.
 #ifdef _WIN32
 int loggerWebStart(const char* log_path,
                    unsigned short port,

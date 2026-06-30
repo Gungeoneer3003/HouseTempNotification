@@ -100,16 +100,16 @@ typedef enum {
     LOGGER_WEB_GRAPH_RANGE_WEEK
 } LoggerWebGraphRange;
 
-//Global variables for the active logger web server and its mutex
+//Shared server state.
 extern LoggerWebServer* active_server;
 extern pthread_mutex_t active_server_mutex;
 
-//Function prototypes for internal functions used in the logger web server
+// Server lifecycle and routing.
 int loggerWebStartServer(LoggerWebServer* server, unsigned short port);
 void loggerWebHandleClient(int client_fd, const LoggerWebServer* server);
 int loggerWebRootDirectoryEquals(const LoggerWebServer* server, const char* subdirectory);
 
-//Function prototypes for utility functions used in the logger web server
+// Response and escaping helpers.
 char* loggerWebCopyString(const char* value);
 void loggerWebSendHtmlHeader(int client_fd);
 void loggerWebSendNotFound(int client_fd);
@@ -121,15 +121,18 @@ void loggerWebSendStaticFile(int client_fd, const char* content_type, const char
 void loggerWebSendCss(int client_fd);
 void loggerWebSendGraphScript(int client_fd);
 
-//Function prototypes for functions that send specific pages to the client
-void loggerWebSendIndex(int client_fd, const LoggerWebServer* server);
-void loggerWebSendGraphs(int client_fd, const LoggerWebServer* server);
-void loggerWebSendRawLog(int client_fd, const LoggerWebServer* server);
-void loggerWebSendTemplate(int client_fd, const char* path, const LoggerWebServer* server);
+// HTML pages and templates.
+void loggerWebSendIndex(int client_fd, const LoggerWebServer* server, int is_root);
+void loggerWebSendGraphs(int client_fd, const LoggerWebServer* server, int is_root);
+void loggerWebSendRawLog(int client_fd, const LoggerWebServer* server, int is_root);
+void loggerWebSendTemplate(int client_fd,
+                           const char* path,
+                           const LoggerWebServer* server,
+                           int show_today_panel);
 void loggerWebSendNav(int client_fd, const LoggerWebServer* server);
 void loggerWebSendTableHeaders(int client_fd, const LoggerWebServer* server);
 
-//Function prototypes for functions that handle log rows and graph data
+// Log rows and parsing helpers.
 void loggerWebSendLogRows(int client_fd, const LoggerWebServer* server);
 void loggerWebSendRawLogContent(int client_fd, const LoggerWebServer* server);
 size_t loggerWebTotalColumnCount(const LoggerWebServer* server);
@@ -148,7 +151,7 @@ int loggerWebResolveColumnIndex(const LoggerWebServer* server,
                                 size_t* index);
 int loggerWebStringEqualsIgnoreCase(const char* left, const char* right);
 
-//Function prototypes for functions that handle graphs and today columns
+// Graph configuration, data, and Today panel helpers.
 void loggerWebFreeGraphs(LoggerWebServer* server);
 void loggerWebFreeTodayColumns(LoggerWebServer* server);
 int loggerWebHasGraphs(const LoggerWebServer* server);
@@ -162,6 +165,7 @@ int loggerWebGraphStatsWindow(time_t now, time_t* window_start, time_t* window_e
 void loggerWebSendGraphData(int client_fd,
                             const LoggerWebServer* server,
                             LoggerWebGraphRange range);
+int loggerWebShouldShowTodayPanel(const LoggerWebServer* server, int is_root);
 void loggerWebSendTodayPanel(int client_fd, const LoggerWebServer* server);
 void loggerWebWriteTodayJson(int client_fd, const LoggerWebServer* server);
 

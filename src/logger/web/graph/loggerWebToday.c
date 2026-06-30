@@ -9,11 +9,15 @@
 
 #define LOGGER_WEB_TODAY_MAX_COLUMNS 16
 
-static int readTodayValues(const LoggerWebServer* server,
-                           double* values,
-                           int* has_value,
-                           char* latest_time,
-                           size_t latest_time_size);
+typedef struct {
+    double values[LOGGER_WEB_TODAY_MAX_COLUMNS];
+    int has_value[LOGGER_WEB_TODAY_MAX_COLUMNS];
+    char latest_time[128];
+} LoggerWebTodaySnapshot;
+
+static void freeTodayColumns(LoggerWebTodayColumn* columns, size_t column_count);
+static int readTodaySnapshot(const LoggerWebServer* server, LoggerWebTodaySnapshot* snapshot);
+static void sendTodayValue(int client_fd, double value);
 
 int loggerWebShowToday(const char* const* columns,
                        size_t column_count,
@@ -40,20 +44,14 @@ int loggerWebShowToday(const char* const* columns,
         for (size_t i = 0; i < column_count; i++) {
             if (!columns[i] || !*columns[i] ||
                 !loggerWebResolveColumnIndex(server, columns[i], &next_columns[i].index)) {
-                for (size_t j = 0; j < i; j++) {
-                    free(next_columns[j].name);
-                }
-                free(next_columns);
+                freeTodayColumns(next_columns, i);
                 pthread_mutex_unlock(&active_server_mutex);
                 return 0;
             }
 
             next_columns[i].name = loggerWebCopyString(columns[i]);
             if (!next_columns[i].name) {
-                for (size_t j = 0; j < i; j++) {
-                    free(next_columns[j].name);
-                }
-                free(next_columns);
+                freeTodayColumns(next_columns, i);
                 pthread_mutex_unlock(&active_server_mutex);
                 return 0;
             }
@@ -69,17 +67,25 @@ int loggerWebShowToday(const char* const* columns,
 }
 
 void loggerWebFreeTodayColumns(LoggerWebServer* server) {
-    if (!server || !server->today_columns) {
+    if (!server) {
         return;
     }
 
-    for (size_t i = 0; i < server->today_column_count; i++) {
-        free(server->today_columns[i].name);
-    }
-
-    free(server->today_columns);
+    freeTodayColumns(server->today_columns, server->today_column_count);
     server->today_columns = NULL;
     server->today_column_count = 0;
+}
+
+int loggerWebShouldShowTodayPanel(const LoggerWebServer* server, int is_root) {
+    int should_show = 0;
+
+    pthread_mutex_lock(&active_server_mutex);
+    should_show = server &&
+                  server->today_column_count > 0 &&
+                  (is_root || server->show_today_on_other_pages);
+    pthread_mutex_unlock(&active_server_mutex);
+
+    return should_show;
 }
 
 void loggerWebSendTodayPanel(int client_fd, const LoggerWebServer* server) {
@@ -88,59 +94,60 @@ void loggerWebSendTodayPanel(int client_fd, const LoggerWebServer* server) {
     }
 
     pthread_mutex_lock(&active_server_mutex);
-    double values[LOGGER_WEB_TODAY_MAX_COLUMNS] = {0};
-    int has_value[LOGGER_WEB_TODAY_MAX_COLUMNS] = {0};
-    char latest_time[128] = "";
-    if (!readTodayValues(server,
-                         values,
-                         has_value,
-                         latest_time,
-                         sizeof(latest_time))) {
+    LoggerWebTodaySnapshot snapshot;
+    if (!readTodaySnapshot(server, &snapshot)) {
+        loggerWebSendAll(client_fd, "<section id=\"today\" class=\"today-panel is-hidden\"></section>");
         pthread_mutex_unlock(&active_server_mutex);
         return;
     }
 
-    loggerWebSendAll(client_fd, "<section class=\"today-panel\">");
+    loggerWebSendAll(client_fd, "<section id=\"today\" class=\"today-panel\">");
     loggerWebSendAll(client_fd, "<div class=\"today-heading\">Current readings</div>");
     loggerWebSendAll(client_fd, "<div class=\"today-readings\">");
     for (size_t i = 0; i < server->today_column_count; i++) {
         loggerWebSendAll(client_fd, "<div class=\"today-reading\"><span class=\"today-label\">");
         loggerWebSendEscaped(client_fd, server->today_columns[i].name);
         loggerWebSendAll(client_fd, "</span><span class=\"today-value\">");
-        if (has_value[i]) {
-            char number[64];
-            snprintf(number, sizeof(number), "%.17g", values[i]);
-            loggerWebSendEscaped(client_fd, number);
+        if (snapshot.has_value[i]) {
+            sendTodayValue(client_fd, snapshot.values[i]);
         } else {
             loggerWebSendAll(client_fd, "--");
         }
         loggerWebSendAll(client_fd, "</span></div>");
     }
     loggerWebSendAll(client_fd, "</div>");
-    if (latest_time[0]) {
+    if (snapshot.latest_time[0]) {
         loggerWebSendAll(client_fd, "<div class=\"today-updated\">Updated ");
-        loggerWebSendEscaped(client_fd, latest_time);
+        loggerWebSendEscaped(client_fd, snapshot.latest_time);
         loggerWebSendAll(client_fd, "</div>");
     }
     loggerWebSendAll(client_fd, "</section>");
     pthread_mutex_unlock(&active_server_mutex);
 }
 
-static int readTodayValues(const LoggerWebServer* server,
-                           double* values,
-                           int* has_value,
-                           char* latest_time,
-                           size_t latest_time_size) {
-    if (!server || !values || !has_value || !latest_time || latest_time_size == 0 ||
+static void freeTodayColumns(LoggerWebTodayColumn* columns, size_t column_count) {
+    if (!columns) {
+        return;
+    }
+
+    for (size_t i = 0; i < column_count; i++) {
+        free(columns[i].name);
+    }
+
+    free(columns);
+}
+
+static int readTodaySnapshot(const LoggerWebServer* server, LoggerWebTodaySnapshot* snapshot) {
+    if (!server || !snapshot ||
         server->today_column_count == 0 ||
         server->today_column_count > LOGGER_WEB_TODAY_MAX_COLUMNS) {
         return 0;
     }
 
-    latest_time[0] = '\0';
+    memset(snapshot, 0, sizeof(*snapshot));
     for (size_t i = 0; i < LOGGER_WEB_TODAY_MAX_COLUMNS; i++) {
-        values[i] = 0.0;
-        has_value[i] = 0;
+        snapshot->values[i] = 0.0;
+        snapshot->has_value[i] = 0;
     }
 
     size_t column_count = loggerWebTotalColumnCount(server);
@@ -176,19 +183,21 @@ static int readTodayValues(const LoggerWebServer* server,
             }
 
             for (size_t i = 0; i < server->today_column_count; i++) {
-                values[i] = row_values[i];
-                has_value[i] = row_has_value[i];
+                snapshot->values[i] = row_values[i];
+                snapshot->has_value[i] = row_has_value[i];
             }
             if (has_logged_at) {
-                loggerWebFormatUnixTime(logged_at, latest_time, latest_time_size);
+                loggerWebFormatUnixTime(logged_at,
+                                        snapshot->latest_time,
+                                        sizeof(snapshot->latest_time));
             } else if (loggerWebRowHasSplitDateTime(fields)) {
-                snprintf(latest_time,
-                         latest_time_size,
+                snprintf(snapshot->latest_time,
+                         sizeof(snapshot->latest_time),
                          "%s",
                          fields[LOGGER_WEB_TIME_FIELD]);
             } else {
-                snprintf(latest_time,
-                         latest_time_size,
+                snprintf(snapshot->latest_time,
+                         sizeof(snapshot->latest_time),
                          "%s",
                          fields[LOGGER_WEB_DATE_FIELD] ? fields[LOGGER_WEB_DATE_FIELD] : "");
             }
@@ -201,21 +210,25 @@ static int readTodayValues(const LoggerWebServer* server,
     return 1;
 }
 
+static void sendTodayValue(int client_fd, double value) {
+    char number[64];
+    double absolute_value = value < 0.0 ? -value : value;
+    snprintf(number,
+             sizeof(number),
+             absolute_value >= 100.0 ? "%.0f" : "%.1f",
+             value);
+    loggerWebSendEscaped(client_fd, number);
+}
+
 void loggerWebWriteTodayJson(int client_fd, const LoggerWebServer* server) {
-    double values[LOGGER_WEB_TODAY_MAX_COLUMNS] = {0};
-    int has_value[LOGGER_WEB_TODAY_MAX_COLUMNS] = {0};
-    char latest_time[128] = "";
-    if (!readTodayValues(server,
-                         values,
-                         has_value,
-                         latest_time,
-                         sizeof(latest_time))) {
+    LoggerWebTodaySnapshot snapshot;
+    if (!readTodaySnapshot(server, &snapshot)) {
         loggerWebSendAll(client_fd, "null");
         return;
     }
 
     loggerWebSendAll(client_fd, "{\"time\":\"");
-    loggerWebSendJsonEscaped(client_fd, latest_time);
+    loggerWebSendJsonEscaped(client_fd, snapshot.latest_time);
     loggerWebSendAll(client_fd, "\",\"columns\":[");
     for (size_t i = 0; i < server->today_column_count; i++) {
         if (i > 0) {
@@ -225,9 +238,9 @@ void loggerWebWriteTodayJson(int client_fd, const LoggerWebServer* server) {
         loggerWebSendAll(client_fd, "{\"name\":\"");
         loggerWebSendJsonEscaped(client_fd, server->today_columns[i].name);
         loggerWebSendAll(client_fd, "\",\"value\":");
-        if (has_value[i]) {
+        if (snapshot.has_value[i]) {
             char number[64];
-            snprintf(number, sizeof(number), "%.17g", values[i]);
+            snprintf(number, sizeof(number), "%.17g", snapshot.values[i]);
             loggerWebSendAll(client_fd, number);
         } else {
             loggerWebSendAll(client_fd, "null");

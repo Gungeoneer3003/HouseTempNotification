@@ -7,31 +7,36 @@
 #include <stdio.h>
 #include <string.h>
 
-static void sendTemplateLine(int client_fd, const char* line, const LoggerWebServer* server);
+static void sendTemplateLine(int client_fd,
+                             const char* line,
+                             const LoggerWebServer* server,
+                             int show_today_panel);
 static void sendGraphDataPath(int client_fd, const LoggerWebServer* server);
 
-//Send a template file to the client, replacing placeholders with dynamic content
-void loggerWebSendTemplate(int client_fd, const char* path, const LoggerWebServer* server) {
-    //Open the template file
+//Send a template file to the client, replacing placeholders with dynamic content.
+void loggerWebSendTemplate(int client_fd,
+                           const char* path,
+                           const LoggerWebServer* server,
+                           int show_today_panel) {
     FILE* file = fopen(path, "r");
     if (!file) {
         loggerWebSendAll(client_fd, "<p>Missing page template.</p>");
         return;
     }
 
-    //Read the template file line by line and send it to the client
     char buffer[2048];
     while (fgets(buffer, sizeof(buffer), file)) {
-        sendTemplateLine(client_fd, buffer, server);
+        sendTemplateLine(client_fd, buffer, server, show_today_panel);
     }
 
-    //Clean up
     fclose(file);
 }
 
-//Send a single line of the template to the client, replacing placeholders with dynamic content
-static void sendTemplateLine(int client_fd, const char* line, const LoggerWebServer* server) {
-    //Define the placeholders and their corresponding types
+//Send a single line of the template to the client, replacing placeholders with dynamic content.
+static void sendTemplateLine(int client_fd,
+                             const char* line,
+                             const LoggerWebServer* server,
+                             int show_today_panel) {
     static const char title_placeholder[] = "{{LOGGER_WEB_TITLE}}";
     static const char headers_placeholder[] = "{{LOGGER_WEB_HEADERS}}";
     static const char nav_placeholder[] = "{{LOGGER_WEB_NAV}}";
@@ -57,12 +62,10 @@ static void sendTemplateLine(int client_fd, const char* line, const LoggerWebSer
 
     const char* cursor = line;
 
-    //Loop through the line and replace placeholders with dynamic content
     for (;;) {
         const char* next = NULL;
         size_t placeholder_index = SIZE_MAX;
 
-        //Determine which placeholder comes next in the line.
         for (size_t i = 0; i < sizeof(placeholders) / sizeof(placeholders[0]); i++) {
             const char* at = strstr(cursor, placeholders[i].text);
             if (at && (!next || at < next)) {
@@ -86,7 +89,7 @@ static void sendTemplateLine(int client_fd, const char* line, const LoggerWebSer
         } else if (placeholders[placeholder_index].type == 3) {
             loggerWebSendNav(client_fd, server);
         } else if (placeholders[placeholder_index].type == 4) {
-            if (server->show_today_on_other_pages) {
+            if (show_today_panel) {
                 loggerWebSendTodayPanel(client_fd, server);
             }
         } else if (placeholders[placeholder_index].type == 5) {
@@ -103,7 +106,7 @@ static void sendTemplateLine(int client_fd, const char* line, const LoggerWebSer
     }
 }
 
-//Send the path to the graph data endpoint based on the server's root directory
+//Send navigation links for the available views.
 void loggerWebSendNav(int client_fd, const LoggerWebServer* server) {
     const char* log_path = loggerWebRootDirectoryEquals(server, LOGGER_WEB_ROOT_LOG) ? "/" : "/log";
     const char* graphs_path = loggerWebRootDirectoryEquals(server, LOGGER_WEB_ROOT_GRAPHS)
@@ -121,13 +124,13 @@ void loggerWebSendNav(int client_fd, const LoggerWebServer* server) {
     loggerWebSendAll(client_fd, "</p>");
 }
 
-//Send the path to the graph data endpoint based on the server's root directory
+//Send the graph data endpoint path for the current root directory.
 static void sendGraphDataPath(int client_fd, const LoggerWebServer* server) {
     loggerWebSendAll(client_fd,
             loggerWebRootDirectoryEquals(server, LOGGER_WEB_ROOT_GRAPHS) ? "/data" : "/graphs/data");
 }
 
-//Send the table headers to the client in a human-readable format
+//Send the log table headers.
 void loggerWebSendTableHeaders(int client_fd, const LoggerWebServer* server) {
     loggerWebSendAll(client_fd, "<th>Date</th>\n                <th>Time</th>");
 

@@ -80,19 +80,19 @@ void loggerWebHandleClient(int client_fd, const LoggerWebServer* server) {
         return;
     }
 
-    //Check the request path and respond accordingly
+    //Dispatch the parsed request path to the matching page or asset handler.
     if (pathEquals(path, "/")) {
         sendRoot(client_fd, server);
     } else if (pathEquals(path, "/log")) {
-        loggerWebSendIndex(client_fd, server);
+        loggerWebSendIndex(client_fd, server, 0);
     } else if (pathEquals(path, "/graphs/data") ||
                (loggerWebRootDirectoryEquals(server, LOGGER_WEB_ROOT_GRAPHS) &&
                 pathEquals(path, "/data"))) {
         loggerWebSendGraphData(client_fd, server, loggerWebParseGraphRange(request));
     } else if (pathEquals(path, "/graphs")) {
-        loggerWebSendGraphs(client_fd, server);
+        loggerWebSendGraphs(client_fd, server, 0);
     } else if (pathEquals(path, "/raw")) {
-        loggerWebSendRawLog(client_fd, server);
+        loggerWebSendRawLog(client_fd, server, 0);
     } else if (pathEquals(path, "/css/loggerWeb.css") ||
                pathEquals(path, "/style.css")) {
         loggerWebSendCss(client_fd);
@@ -104,14 +104,14 @@ void loggerWebHandleClient(int client_fd, const LoggerWebServer* server) {
     }
 }
 
-//Send the root page to the client, which is either the index or graphs page based on the server's root directory
+//Send the configured root page.
 static void sendRoot(int client_fd, const LoggerWebServer* server) {
     if (loggerWebRootDirectoryEquals(server, LOGGER_WEB_ROOT_GRAPHS)) {
-        loggerWebSendGraphs(client_fd, server);
+        loggerWebSendGraphs(client_fd, server, 1);
         return;
     }
 
-    loggerWebSendIndex(client_fd, server);
+    loggerWebSendIndex(client_fd, server, 1);
 }
 
 

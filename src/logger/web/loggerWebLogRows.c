@@ -63,16 +63,14 @@ static size_t displayedColumnCount(const LoggerWebServer* server) {
     return loggerWebTotalColumnCount(server) - 1;
 }
 
-//Split a log line into fields based on the '|' delimiter, up to the specified column count
+//Split a log line into fields based on the '|' delimiter, up to the specified column count.
 int loggerWebSplitFields(char* line, char** fields, size_t column_count) {
-    //Check for null parameters and zero column count
     if (!line || !fields || column_count == 0) {
         return 0;
     }
 
     memset(fields, 0, column_count * sizeof(*fields));
 
-    //The first field starts at the beginning of the line, and each subsequent field starts after the next '|' character
     char* cursor = line;
     for (size_t i = 0; i < column_count; i++) {
         fields[i] = cursor;
@@ -115,10 +113,7 @@ int loggerWebRowHasSplitDateTime(char** fields) {
            looksLikeTimeField(fields[LOGGER_WEB_TIME_FIELD]);
 }
 
-//Check if the given string looks like a date field in the format YYYY-MM-DD
-//The reason this is needed is that some log rows may have the date and time 
-//combined in a single field, while others may be split into separate fields. 
-//This function helps determine which case we are dealing with.
+//Check whether a field is a split date in YYYY-MM-DD format.
 static int looksLikeDateField(const char* value) {
     if (!value || strlen(value) != 10) {
         return 0;
@@ -138,7 +133,7 @@ static int looksLikeDateField(const char* value) {
            value[10] == '\0';
 }
 
-//Check if the given string looks like a time field in the format HH:MM:SS
+//Check whether a field is a split local-time value.
 static int looksLikeTimeField(const char* value) {
     if (!value || !strchr(value, ':')) {
         return 0;
@@ -175,7 +170,6 @@ void loggerWebSendLogRows(int client_fd, const LoggerWebServer* server) {
             size_t next_capacity = row_capacity == 0 ? 32 : row_capacity * 2;
             char** next_rows = realloc(rows, next_capacity * sizeof(*next_rows));
             
-            //If realloc fails, free any rows that were already allocated and send an error message to the client
             if (!next_rows) {
                 for (size_t i = 0; i < row_count; i++) {
                     free(rows[i]);
@@ -200,7 +194,6 @@ void loggerWebSendLogRows(int client_fd, const LoggerWebServer* server) {
                 free(rows[i]);
             }
 
-            //Clean up and send an error message to the client
             free(rows);
             fclose(file);
             sendColspanMessage(client_fd, display_column_count, "Unable to load log rows.");
@@ -221,7 +214,7 @@ void loggerWebSendLogRows(int client_fd, const LoggerWebServer* server) {
         return;
     }
 
-    //Write the log rows to the client in reverse order (most recent first), freeing each row after it is sent
+    //Show newest entries first.
     for (size_t i = row_count; i > 0; i--) {
         writeLogRow(client_fd, rows[i - 1], server);
         free(rows[i - 1]);
