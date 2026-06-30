@@ -7,10 +7,14 @@ typedef struct {
     const char* house_link;
     const char* cgi_part;
     const char* power_part;
+    const char* speed_up_part;
+    const char* slow_down_part;
     const char* log_path;
     const char* lock_path;
     char cgi_url[256];
     char shutoff_url[256];
+    char speed_up_url[256];
+    char slow_down_url[256];
 } AppConfig;
 
 void configInitDefaults(AppConfig* config);

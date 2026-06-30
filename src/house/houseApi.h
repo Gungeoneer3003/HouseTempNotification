@@ -12,6 +12,8 @@ typedef struct {
 
 int houseReadSensor(const AppConfig* config, SensorReading* reading);
 int houseTurnOffFans(const AppConfig* config);
+int houseSpeedUpFans(const AppConfig* config);
+int houseSlowDownFans(const AppConfig* config);
 int pushoverSendMessage(const AppConfig* config, const char* message);
 
 #endif

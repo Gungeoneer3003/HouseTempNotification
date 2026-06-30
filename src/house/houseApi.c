@@ -5,6 +5,8 @@
 #include "portable.h"
 #include "settings.h"
 
+static int houseSendFanCommand(const char* url, const char* action, const char* success_message);
+
 //Read the sensor data from the house API, with retries
 int houseReadSensor(const AppConfig* config, SensorReading* reading) {
     if (!config || !reading) {
@@ -63,17 +65,51 @@ int houseTurnOffFans(const AppConfig* config) {
         return 0;
     }
 
+    return houseSendFanCommand(config->shutoff_url,
+                               "Fan shutoff request",
+                               "Successfully turned off fans");
+}
+
+int houseSpeedUpFans(const AppConfig* config) {
+    if (!config) {
+        return 0;
+    }
+
+    //Use the configured speed-up endpoint for manual web fan controls.
+    return houseSendFanCommand(config->speed_up_url,
+                               "Fan speed up request",
+                               "Successfully increased fan speed");
+}
+
+int houseSlowDownFans(const AppConfig* config) {
+    if (!config) {
+        return 0;
+    }
+
+    //Use the configured slow-down endpoint for manual web fan controls.
+    return houseSendFanCommand(config->slow_down_url,
+                               "Fan slow down request",
+                               "Successfully decreased fan speed");
+}
+
+//Send a fan command with the same retry behavior as the sensor read path.
+static int houseSendFanCommand(const char* url, const char* action, const char* success_message) {
+    if (!url || !*url) {
+        return 0;
+    }
+
     for (int attempt = 0; attempt < SENSOR_RETRY_COUNT; attempt++) {
         HttpResponse response;
 
-        if (httpGet(config->shutoff_url, "Fan shutoff request", &response)) {
+        if (httpGet(url, action, &response)) {
             httpResponseFree(&response);
-            printf("Successfully turned off fans\n");
+            printf("%s\n", success_message);
             return 1;
         }
 
         httpResponseFree(&response);
-        fprintf(stderr, "Fan shutoff failed attempt %d of %d\n",
+        fprintf(stderr, "%s failed attempt %d of %d\n",
+                action,
                 attempt + 1, SENSOR_RETRY_COUNT);
         portableSleepSeconds(1);
     }

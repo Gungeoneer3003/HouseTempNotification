@@ -17,6 +17,11 @@ int configLoad(AppConfig* config, const char* env_file);
 static char* trimWhitespace(char* str);
 static void loadDotenv(const char* filename);
 static int buildUrls(AppConfig* config);
+static int buildUrl(char* output,
+                    size_t output_size,
+                    const char* house_link,
+                    const char* path_part,
+                    const char* label);
 
 //For the default config values
 void configInitDefaults(AppConfig* config) {
@@ -29,10 +34,14 @@ void configInitDefaults(AppConfig* config) {
     config->house_link = NULL;
     config->cgi_part = NULL;
     config->power_part = NULL;
+    config->speed_up_part = NULL;
+    config->slow_down_part = NULL;
     config->log_path = DEFAULT_LOG_FILE;
     config->lock_path = DEFAULT_LOCK_FILE;
     config->cgi_url[0] = '\0';
     config->shutoff_url[0] = '\0';
+    config->speed_up_url[0] = '\0';
+    config->slow_down_url[0] = '\0';
 }
 
 //Load the configuration from the environment or a .env file
@@ -55,6 +64,8 @@ int configLoad(AppConfig* config, const char* env_file) {
     config->house_link = getenv("HOUSE_LINK");
     config->cgi_part = getenv("CGI_PART");
     config->power_part = getenv("POWER_PART");
+    config->speed_up_part = getenv("SPEED_UP_PART");
+    config->slow_down_part = getenv("SLOW_DOWN_PART");
 
     //Get the log and lock file paths from the environment, if set
     const char* log_path = getenv("LOG_FILE");
@@ -72,43 +83,74 @@ int configLoad(AppConfig* config, const char* env_file) {
         !config->user_key || !*config->user_key ||
         !config->house_link || !*config->house_link ||
         !config->cgi_part || !*config->cgi_part ||
-        !config->power_part || !*config->power_part) {
+        !config->power_part || !*config->power_part ||
+        !config->speed_up_part || !*config->speed_up_part ||
+        !config->slow_down_part || !*config->slow_down_part) {
         fprintf(stderr,
                 "Missing configuration in %s or environment: API=%s USER_KEY=%s "
-                "HOUSE_LINK=%s CGI_PART=%s POWER_PART=%s\n",
+                "HOUSE_LINK=%s CGI_PART=%s POWER_PART=%s "
+                "SPEED_UP_PART=%s SLOW_DOWN_PART=%s\n",
                 env_file ? env_file : "environment",
                 (config->api_token && *config->api_token) ? "ok" : "missing",
                 (config->user_key && *config->user_key) ? "ok" : "missing",
                 (config->house_link && *config->house_link) ? "ok" : "missing",
                 (config->cgi_part && *config->cgi_part) ? "ok" : "missing",
-                (config->power_part && *config->power_part) ? "ok" : "missing");
+                (config->power_part && *config->power_part) ? "ok" : "missing",
+                (config->speed_up_part && *config->speed_up_part) ? "ok" : "missing",
+                (config->slow_down_part && *config->slow_down_part) ? "ok" : "missing");
         return 0;
     }
 
-    //Build the full URLs for CGI and power shutoff
+    //Build the full URLs for CGI and fan control endpoints
     return buildUrls(config);
 }
 
-//Build the full URLs for CGI and power shutoff 
+//Build the full URLs for CGI and fan control endpoints.
 static int buildUrls(AppConfig* config) {
-    //Ensure that the house_link ends with a slash
-    int n = snprintf(config->cgi_url, sizeof(config->cgi_url), "%s%s",
-                     config->house_link, config->cgi_part);
-
-    //Check for errors and truncation
-    if (n < 0 || (size_t)n >= sizeof(config->cgi_url)) {
-        fprintf(stderr, "CGI link is too long\n");
+    if (!buildUrl(config->cgi_url,
+                  sizeof(config->cgi_url),
+                  config->house_link,
+                  config->cgi_part,
+                  "CGI")) {
         return 0;
     }
 
-    //Ensure that the house_link ends with a slash
-    //This time, build the shutoff URL
-    n = snprintf(config->shutoff_url, sizeof(config->shutoff_url), "%s%s",
-                 config->house_link, config->power_part);
+    if (!buildUrl(config->shutoff_url,
+                  sizeof(config->shutoff_url),
+                  config->house_link,
+                  config->power_part,
+                  "Power")) {
+        return 0;
+    }
 
-    //Check for errors and truncation
-    if (n < 0 || (size_t)n >= sizeof(config->shutoff_url)) {
-        fprintf(stderr, "Power link is too long\n");
+    if (!buildUrl(config->speed_up_url,
+                  sizeof(config->speed_up_url),
+                  config->house_link,
+                  config->speed_up_part,
+                  "Speed up")) {
+        return 0;
+    }
+
+    if (!buildUrl(config->slow_down_url,
+                  sizeof(config->slow_down_url),
+                  config->house_link,
+                  config->slow_down_part,
+                  "Slow down")) {
+        return 0;
+    }
+
+    return 1;
+}
+
+//Join the base house URL with one endpoint path and check for truncation.
+static int buildUrl(char* output,
+                    size_t output_size,
+                    const char* house_link,
+                    const char* path_part,
+                    const char* label) {
+    int n = snprintf(output, output_size, "%s%s", house_link, path_part);
+    if (n < 0 || (size_t)n >= output_size) {
+        fprintf(stderr, "%s link is too long\n", label);
         return 0;
     }
 

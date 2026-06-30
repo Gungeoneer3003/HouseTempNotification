@@ -19,7 +19,23 @@ static void *notifyThread(void *arg);
 static int queueNotif(const SensorReading *newReading, time_t newNow, Rec newRec);
 static void setNotifReady(void);
 #if LOGGER_WEB_PORT > 0
+typedef int (*LoggerWebFanCommand)(const AppConfig* config);
+
+typedef struct {
+    const AppConfig* config;
+    LoggerWebFanCommand command;
+    int ok;
+} LoggerWebFanCommandJob;
+
+static int loggerWebFanSpeedUp(void* arg);
+static int loggerWebFanSlowDown(void* arg);
 static int loggerWebFanPowerToggle(void* arg);
+static int loggerWebRunFanCommand(void* arg,
+                                  LoggerWebFanCommand command,
+                                  const char* detail);
+static int loggerWebWakeFan(const AppConfig* web_config);
+static void* loggerWebFanCommandThread(void* arg);
+static int loggerWebLogFanReading(const AppConfig* web_config, const char* detail);
 #endif
 
 // Globals for the pending notification handoff.
@@ -105,10 +121,10 @@ int main(void)
                            1,
                            1);
 
-        //The house API currently exposes the fan shutoff URL, so only power is wired here.
+        //Wire each web fan button to its matching house API endpoint.
         LoggerWebTodayControls logger_web_today_controls = {
-            .speed_up = NULL,
-            .speed_down = NULL,
+            .speed_up = loggerWebFanSpeedUp,
+            .speed_down = loggerWebFanSlowDown,
             .power_toggle = loggerWebFanPowerToggle,
             .user = &config
         };
@@ -356,6 +372,16 @@ static void setNotifReady(void)
 }
 
 #if LOGGER_WEB_PORT > 0
+static int loggerWebFanSpeedUp(void* arg)
+{
+    return loggerWebRunFanCommand(arg, houseSpeedUpFans, "speed up");
+}
+
+static int loggerWebFanSlowDown(void* arg)
+{
+    return loggerWebRunFanCommand(arg, houseSlowDownFans, "slow down");
+}
+
 static int loggerWebFanPowerToggle(void* arg)
 {
     AppConfig* web_config = (AppConfig*)arg;
@@ -363,7 +389,99 @@ static int loggerWebFanPowerToggle(void* arg)
         return 0;
     }
 
-    //Map the web power button to the fan shutoff command already used by notifications.
-    return houseTurnOffFans(web_config);
+    SensorReading current_reading;
+    if (!houseReadSensor(web_config, &current_reading)) {
+        return 0;
+    }
+
+    if (current_reading.power) {
+        //When the fan is on, the power button maps to the existing shutoff endpoint.
+        if (!houseTurnOffFans(web_config)) {
+            return 0;
+        }
+
+        return loggerWebLogFanReading(web_config, "power off");
+    }
+
+    //When the fan is off, wake it with both speed commands before reading the result.
+    if (!loggerWebWakeFan(web_config)) {
+        return 0;
+    }
+
+    return loggerWebLogFanReading(web_config, "power on");
+}
+
+static int loggerWebRunFanCommand(void* arg,
+                                  LoggerWebFanCommand command,
+                                  const char* detail)
+{
+    AppConfig* web_config = (AppConfig*)arg;
+    if (!web_config || !command) {
+        return 0;
+    }
+
+    if (!command(web_config)) {
+        return 0;
+    }
+
+    //Append the post-command sensor reading so the Today panel refreshes immediately.
+    return loggerWebLogFanReading(web_config, detail);
+}
+
+static int loggerWebWakeFan(const AppConfig* web_config)
+{
+    if (!web_config) {
+        return 0;
+    }
+
+    LoggerWebFanCommandJob speed_up = {web_config, houseSpeedUpFans, 0};
+    LoggerWebFanCommandJob slow_down = {web_config, houseSlowDownFans, 0};
+    pthread_t speed_up_thread;
+    pthread_t slow_down_thread;
+
+    //Send speed-up and slow-down together because the fan uses that pair as its power-on nudge.
+    if (pthread_create(&speed_up_thread, NULL, loggerWebFanCommandThread, &speed_up) != 0) {
+        return 0;
+    }
+
+    if (pthread_create(&slow_down_thread, NULL, loggerWebFanCommandThread, &slow_down) != 0) {
+        pthread_join(speed_up_thread, NULL);
+        return 0;
+    }
+
+    pthread_join(speed_up_thread, NULL);
+    pthread_join(slow_down_thread, NULL);
+    return speed_up.ok && slow_down.ok;
+}
+
+static void* loggerWebFanCommandThread(void* arg)
+{
+    LoggerWebFanCommandJob* job = (LoggerWebFanCommandJob*)arg;
+    if (job && job->command) {
+        job->ok = job->command(job->config);
+    }
+
+    return NULL;
+}
+
+static int loggerWebLogFanReading(const AppConfig* web_config, const char* detail)
+{
+    SensorReading updated_reading;
+    if (!web_config || !houseReadSensor(web_config, &updated_reading)) {
+        return 0;
+    }
+
+    //The fresh log row is what the Today panel reads after the control request reloads.
+    Rec updated_rec = getRec(updated_reading.house,
+                             updated_reading.outside_air,
+                             updated_reading.power);
+    return lprintf(web_config->log_path,
+                   "%d|%d|%d|%d|%s|web fan|%s",
+                   updated_reading.house,
+                   updated_reading.outside_air,
+                   updated_reading.attic,
+                   updated_reading.power,
+                   getRecName(updated_rec),
+                   detail ? detail : "");
 }
 #endif
