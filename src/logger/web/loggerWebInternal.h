@@ -66,6 +66,7 @@ typedef struct {
 typedef struct {
     char* label;
     char* href;
+    int root_relative;
 } LoggerWebNavLink;
 
 typedef struct {
@@ -111,6 +112,12 @@ typedef enum {
     LOGGER_WEB_GRAPH_RANGE_WEEK
 } LoggerWebGraphRange;
 
+typedef enum {
+    LOGGER_WEB_PAGE_LOG,
+    LOGGER_WEB_PAGE_GRAPHS,
+    LOGGER_WEB_PAGE_RAW
+} LoggerWebPage;
+
 //Shared server state.
 extern LoggerWebServer* active_server;
 extern pthread_mutex_t active_server_mutex;
@@ -145,8 +152,9 @@ void loggerWebSendRawLog(int client_fd, const LoggerWebServer* server, int is_ro
 void loggerWebSendTemplate(int client_fd,
                            const char* path,
                            const LoggerWebServer* server,
-                           int show_today_panel);
-void loggerWebSendNav(int client_fd, const LoggerWebServer* server);
+                           int show_today_panel,
+                           LoggerWebPage current_page);
+void loggerWebSendNav(int client_fd, const LoggerWebServer* server, LoggerWebPage current_page);
 void loggerWebSendTableHeaders(int client_fd, const LoggerWebServer* server);
 
 // Log rows and parsing helpers.

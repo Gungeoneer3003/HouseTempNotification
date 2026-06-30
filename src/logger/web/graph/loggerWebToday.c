@@ -283,7 +283,7 @@ static void sendTodayReadings(int client_fd,
         if (snapshot->has_value[i]) {
             sendTodayValue(client_fd, snapshot->values[i]);
         } else {
-            loggerWebSendAll(client_fd, "--");
+            loggerWebSendAll(client_fd, "(Off)");
         }
         loggerWebSendAll(client_fd, "</span></div>");
     }
@@ -310,7 +310,7 @@ static void sendTodayControls(int client_fd,
     if (snapshot->has_fan_speed) {
         sendTodayValue(client_fd, snapshot->fan_speed);
     } else {
-        loggerWebSendAll(client_fd, "--");
+        loggerWebSendAll(client_fd, "(Off)");
     }
     loggerWebSendAll(client_fd, "</span></div>");
     loggerWebSendAll(client_fd, "<div class=\"today-step-buttons\">");

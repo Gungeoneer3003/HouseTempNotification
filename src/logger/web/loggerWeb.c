@@ -46,9 +46,10 @@ int loggerWebSetRootDirectory(const char* subdirectory) {
     return 0;
 }
 
-int loggerWebAddNavLink(const char* label, const char* href) {
+int loggerWebAddNavLink(const char* label, const char* href, int root_relative) {
     (void)label;
     (void)href;
+    (void)root_relative;
 
     fprintf(stderr, "Logger web viewer is not supported on Windows\n");
     return 0;
@@ -245,7 +246,7 @@ int loggerWebSetRootDirectory(const char* subdirectory) {
     return 1;
 }
 
-int loggerWebAddNavLink(const char* label, const char* href) {
+int loggerWebAddNavLink(const char* label, const char* href, int root_relative) {
     if (!label || !*label || !href || !*href) {
         return 0;
     }
@@ -282,6 +283,7 @@ int loggerWebAddNavLink(const char* label, const char* href) {
 
     server->nav_links[server->nav_link_count].label = label_copy;
     server->nav_links[server->nav_link_count].href = href_copy;
+    server->nav_links[server->nav_link_count].root_relative = root_relative != 0;
     server->nav_link_count++;
 
     pthread_mutex_unlock(&active_server_mutex);

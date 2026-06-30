@@ -63,7 +63,7 @@ void pollerRun(const AppConfig* config)
         // Keep the regular row format in one helper so future fields are added once.
         if (currentRec == REC_NONE)
         {
-            logReadingEvent(config->log_path, &currentReading, currentRec, "idle", "no notification needed");
+            logReadingEvent(config->log_path, &currentReading, currentRec, "idle", "");
         }
         else if (notificationQueued)
         {

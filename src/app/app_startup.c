@@ -56,7 +56,8 @@ void appStartLoggerWeb(const AppConfig* config)
         webControlsConfigureToday(config);
         loggerWebSetRootDirectory("graphs");
 
-        loggerWebAddNavLink("Airscape", config->house_link);
+        // The Airscape controller lives outside this web app, so render it as a plain link.
+        loggerWebAddNavLink("Airscape", config->house_link, 0);
     }
 #else
     (void)config;

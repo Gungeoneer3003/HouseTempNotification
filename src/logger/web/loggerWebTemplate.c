@@ -10,19 +10,28 @@
 static void sendTemplateLine(int client_fd,
                              const char* line,
                              const LoggerWebServer* server,
-                             int show_today_panel);
+                             int show_today_panel,
+                             LoggerWebPage current_page);
 static void sendGraphDataPath(int client_fd, const LoggerWebServer* server);
 static void sendNavButton(int client_fd,
                           const char* href,
                           const char* label,
                           const char* icon_class,
                           int is_active);
+static void sendCustomNavButton(int client_fd,
+                                const LoggerWebServer* server,
+                                const LoggerWebNavLink* link);
+static void formatRootRelativeHref(const LoggerWebServer* server,
+                                   const char* subdirectory,
+                                   char* output,
+                                   size_t output_size);
 
 //Send a template file to the client, replacing placeholders with dynamic content.
 void loggerWebSendTemplate(int client_fd,
                            const char* path,
                            const LoggerWebServer* server,
-                           int show_today_panel) {
+                           int show_today_panel,
+                           LoggerWebPage current_page) {
     FILE* file = fopen(path, "r");
     if (!file) {
         loggerWebSendAll(client_fd, "<p>Missing page template.</p>");
@@ -31,7 +40,7 @@ void loggerWebSendTemplate(int client_fd,
 
     char buffer[2048];
     while (fgets(buffer, sizeof(buffer), file)) {
-        sendTemplateLine(client_fd, buffer, server, show_today_panel);
+        sendTemplateLine(client_fd, buffer, server, show_today_panel, current_page);
     }
 
     fclose(file);
@@ -41,7 +50,8 @@ void loggerWebSendTemplate(int client_fd,
 static void sendTemplateLine(int client_fd,
                              const char* line,
                              const LoggerWebServer* server,
-                             int show_today_panel) {
+                             int show_today_panel,
+                             LoggerWebPage current_page) {
     static const char title_placeholder[] = "{{LOGGER_WEB_TITLE}}";
     static const char headers_placeholder[] = "{{LOGGER_WEB_HEADERS}}";
     static const char nav_placeholder[] = "{{LOGGER_WEB_NAV}}";
@@ -92,7 +102,7 @@ static void sendTemplateLine(int client_fd,
         } else if (placeholders[placeholder_index].type == 2) {
             loggerWebSendTableHeaders(client_fd, server);
         } else if (placeholders[placeholder_index].type == 3) {
-            loggerWebSendNav(client_fd, server);
+            loggerWebSendNav(client_fd, server, current_page);
         } else if (placeholders[placeholder_index].type == 4) {
             if (show_today_panel) {
                 loggerWebSendTodayPanel(client_fd, server);
@@ -112,28 +122,52 @@ static void sendTemplateLine(int client_fd,
 }
 
 //Send navigation links for the available views.
-void loggerWebSendNav(int client_fd, const LoggerWebServer* server) {
+void loggerWebSendNav(int client_fd, const LoggerWebServer* server, LoggerWebPage current_page) {
     const char* log_path = loggerWebRootDirectoryEquals(server, LOGGER_WEB_ROOT_LOG) ? "/" : "/log";
     const char* graphs_path = loggerWebRootDirectoryEquals(server, LOGGER_WEB_ROOT_GRAPHS)
         ? "/"
         : "/graphs";
-    int log_active = loggerWebRootDirectoryEquals(server, LOGGER_WEB_ROOT_LOG);
-    int graphs_active = loggerWebRootDirectoryEquals(server, LOGGER_WEB_ROOT_GRAPHS);
 
     loggerWebSendAll(client_fd, "<nav class=\"nav\" aria-label=\"Views\">");
-    sendNavButton(client_fd, log_path, "Log", "nav-icon--log", log_active);
-    sendNavButton(client_fd, "/raw", "Raw log", "nav-icon--raw", 0);
+    sendNavButton(client_fd, log_path, "Log", "nav-icon--log", current_page == LOGGER_WEB_PAGE_LOG);
+    sendNavButton(client_fd, "/raw", "Raw log", "nav-icon--raw", current_page == LOGGER_WEB_PAGE_RAW);
     if (loggerWebHasGraphs(server)) {
-        sendNavButton(client_fd, graphs_path, "Graphs", "nav-icon--graphs", graphs_active);
+        sendNavButton(client_fd, graphs_path, "Graphs", "nav-icon--graphs", current_page == LOGGER_WEB_PAGE_GRAPHS);
     }
     for (size_t i = 0; i < server->nav_link_count; i++) {
-        sendNavButton(client_fd,
-                      server->nav_links[i].href,
-                      server->nav_links[i].label,
-                      "nav-icon--link",
-                      0);
+        sendCustomNavButton(client_fd, server, &server->nav_links[i]);
     }
     loggerWebSendAll(client_fd, "</nav>");
+}
+
+static void sendCustomNavButton(int client_fd,
+                                const LoggerWebServer* server,
+                                const LoggerWebNavLink* link) {
+    char href[LOGGER_WEB_MAX_PATH];
+    const char* rendered_href = link->href;
+
+    // Root-relative custom links follow whichever built-in page owns "/".
+    if (link->root_relative) {
+        formatRootRelativeHref(server, link->href, href, sizeof(href));
+        rendered_href = href;
+    }
+
+    sendNavButton(client_fd, rendered_href, link->label, "nav-icon--link", 0);
+}
+
+static void formatRootRelativeHref(const LoggerWebServer* server,
+                                   const char* subdirectory,
+                                   char* output,
+                                   size_t output_size) {
+    while (subdirectory && *subdirectory == '/') {
+        subdirectory++;
+    }
+
+    if (loggerWebRootDirectoryEquals(server, LOGGER_WEB_ROOT_GRAPHS)) {
+        snprintf(output, output_size, "/graphs/%s", subdirectory ? subdirectory : "");
+    } else {
+        snprintf(output, output_size, "/%s", subdirectory ? subdirectory : "");
+    }
 }
 
 static void sendNavButton(int client_fd,
