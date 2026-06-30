@@ -1,0 +1,220 @@
+#include "notification_worker.h"
+
+#include <pthread.h>
+#include <semaphore.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "logger.h"
+#include "portable.h"
+
+typedef struct NotificationJob {
+    SensorReading reading;
+    time_t now;
+    Rec rec;
+    struct NotificationJob* next;
+} NotificationJob;
+
+static void* notificationThread(void* arg);
+static NotificationJob* popNotificationJob(void);
+static void sendNotification(const NotificationJob* job);
+static int queueContainsRecLocked(Rec rec);
+static void clearActiveNotification(Rec rec);
+
+static const AppConfig* notification_config;
+static NotificationJob* notification_head;
+static NotificationJob* notification_tail;
+static Rec active_notification_rec = REC_NONE;
+static sem_t notification_sem;
+static pthread_mutex_t notification_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+int notificationWorkerStart(const AppConfig* config)
+{
+    if (!config) {
+        return 0;
+    }
+
+    notification_config = config;
+
+    // The semaphore tracks queued jobs, while the mutex protects the linked FIFO.
+    if (sem_init(&notification_sem, 0, 0) == -1)
+    {
+        perror("sem_init for notification worker");
+        return 0;
+    }
+
+    pthread_t notification_thread;
+    int res = pthread_create(&notification_thread, NULL, notificationThread, NULL);
+    if (res != 0)
+    {
+        fprintf(stderr, "Notif Thread: %s\n", strerror(res));
+        return 0;
+    }
+    pthread_detach(notification_thread);
+
+    return 1;
+}
+
+int notificationQueueReading(const SensorReading* reading, time_t now, Rec rec)
+{
+    if (!reading) {
+        return 0;
+    }
+
+    NotificationJob* job = malloc(sizeof(*job));
+    if (!job) {
+        return 0;
+    }
+
+    job->reading = *reading;
+    job->now = now;
+    job->rec = rec;
+    job->next = NULL;
+
+    pthread_mutex_lock(&notification_mutex);
+    if (active_notification_rec == rec || queueContainsRecLocked(rec)) {
+        pthread_mutex_unlock(&notification_mutex);
+        free(job);
+        return 0;
+    }
+
+    if (notification_tail) {
+        notification_tail->next = job;
+    } else {
+        notification_head = job;
+    }
+    notification_tail = job;
+    pthread_mutex_unlock(&notification_mutex);
+
+    // Wake the worker after the job is visible in the queue.
+    if (sem_post(&notification_sem) == -1)
+    {
+        perror("sem_post in poller thread");
+        exit(EXIT_FAILURE);
+    }
+
+    return 1;
+}
+
+static void* notificationThread(void* arg)
+{
+    (void)arg;
+
+    for (;;)
+    {
+        if (sem_wait(&notification_sem) == -1)
+        {
+            perror("sem_wait in notif thread");
+            exit(EXIT_FAILURE);
+        }
+
+        NotificationJob* job = popNotificationJob();
+        if (!job) {
+            continue;
+        }
+
+        sendNotification(job);
+        free(job);
+    }
+
+    return NULL;
+}
+
+static NotificationJob* popNotificationJob(void)
+{
+    pthread_mutex_lock(&notification_mutex);
+    NotificationJob* job = notification_head;
+    if (job) {
+        notification_head = job->next;
+        if (!notification_head) {
+            notification_tail = NULL;
+        }
+        active_notification_rec = job->rec;
+    }
+    pthread_mutex_unlock(&notification_mutex);
+    return job;
+}
+
+static void sendNotification(const NotificationJob* job)
+{
+    char msg[256];
+    int fanOffOk = 1;
+
+    // Close recommendations still try to turn off the fans before notifying.
+    if (job->rec == REC_CLOSE)
+    {
+        fanOffOk = houseTurnOffFans(notification_config);
+    }
+
+    if (job->rec == REC_OPEN)
+    {
+        snprintf(msg, sizeof(msg), "Open the windows (Out:%2d In:%2d)",
+                 job->reading.outside_air, job->reading.house);
+    }
+    else if (fanOffOk)
+    {
+        snprintf(msg, sizeof(msg), "Close the windows (Out:%2d In:%2d)",
+                 job->reading.outside_air, job->reading.house);
+    }
+    else
+    {
+        snprintf(msg, sizeof(msg), "Close the windows (fan failed)");
+    }
+
+    int msgResult = pushoverSendMessage(notification_config, msg);
+
+    // Successful sends become graphable open/close events; failures stay explicit.
+    if (msgResult)
+    {
+        const char* notifEvent = job->rec == REC_CLOSE ? "close notif" : "open notif";
+        lprintf(notification_config->log_path,
+                "%d|%d|%d|%d|%s|%s|%s",
+                job->reading.house,
+                job->reading.outside_air,
+                job->reading.attic,
+                job->reading.speed,
+                getRecName(job->rec),
+                notifEvent,
+                msg);
+
+        long sleep_sec = secUntilWindow(job->rec, job->now);
+        lprintf(notification_config->log_path, "-|-|-|-|-|Sleeping|sleep(%u)", (unsigned int)sleep_sec);
+        if (sleep_sec > 0)
+        {
+            portableSleepSeconds((unsigned int)sleep_sec);
+        }
+    }
+    else
+    {
+        lprintf(notification_config->log_path,
+                "%d|%d|%d|%d|%s|notify failed|",
+                job->reading.house,
+                job->reading.outside_air,
+                job->reading.attic,
+                job->reading.speed,
+                getRecName(job->rec));
+    }
+
+    clearActiveNotification(job->rec);
+}
+
+static int queueContainsRecLocked(Rec rec)
+{
+    // Caller holds notification_mutex; this prevents duplicate work while retaining a real FIFO.
+    for (NotificationJob* job = notification_head; job; job = job->next) {
+        if (job->rec == rec) {
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+static void clearActiveNotification(Rec rec)
+{
+    pthread_mutex_lock(&notification_mutex);
+    if (active_notification_rec == rec) {
+        active_notification_rec = REC_NONE;
+    }
+    pthread_mutex_unlock(&notification_mutex);
+}
