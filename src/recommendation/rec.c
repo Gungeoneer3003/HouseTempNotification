@@ -2,14 +2,14 @@
 #include "settings.h"
 
 //Get the recommendation based on house, outside air, and power status
-Rec getRec(int house, int outside_air, int power) {
+Rec getRec(int house, int outside_air, int speed) {
     int diff = outside_air - house;
 
-    if (!power && diff <= -MARGIN) {
+    if (!speed && diff <= -MARGIN) {
         return REC_OPEN;
     }
 
-    if (power && diff >= MARGIN) {
+    if (speed && diff >= MARGIN) {
         return REC_CLOSE;
     }
 

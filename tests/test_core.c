@@ -25,7 +25,7 @@ static void testRecommendations(void) {
 static void testJsonParseInt(void) {
     int value = 0;
 
-    assert(jsonParseInt("{\"inside\":72,\"oa\":65,\"power\":0}", "inside", &value));
+    assert(jsonParseInt("{\"inside\":72,\"oa\":65,\"fanspd\":0}", "inside", &value));
     assert(value == 72);
 
     assert(jsonParseInt("{ \"oa\" : -4 }", "oa", &value));

@@ -72,4 +72,9 @@
 #define LOGGER_WEB_PORT 8080
 #endif
 
+//The default speed for the fan after being awoken from power off
+#ifndef DEF_FAN_SPEED
+#define DEF_FAN_SPEED 4
+#endif
+
 #endif

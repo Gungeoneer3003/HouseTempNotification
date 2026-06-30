@@ -86,7 +86,7 @@ int main(void)
         "Inside",
         "Outside",
         "Attic",
-        "Power",
+        "Fan Speed",
         "Recommendation",
         "Event",
         "Detail"};
@@ -184,7 +184,7 @@ int main(void)
         }
 
         // Determine the recommendation based on the sensor readings
-        currentRec = getRec(currentReading.house, currentReading.outside_air, currentReading.power);
+        currentRec = getRec(currentReading.house, currentReading.outside_air, currentReading.speed);
 
         // Use the recommendation and see if a notification is in order
         if (currentRec != REC_NONE)
@@ -204,7 +204,7 @@ int main(void)
 
                 lprintf(config.log_path, "%d|%d|%d|%d|%s|%s|",
                         currentReading.house, currentReading.outside_air, 
-                        currentReading.attic, currentReading.power, 
+                        currentReading.attic, currentReading.speed, 
                         getRecName(currentRec), errorEvent);
 
                 portableSleepSeconds(POLL_INTERVAL_SECONDS);
@@ -223,21 +223,21 @@ int main(void)
         {
             lprintf(config.log_path, "%d|%d|%d|%d|%s|idle|",
                     currentReading.house, currentReading.outside_air, 
-                    currentReading.attic, currentReading.power, 
+                    currentReading.attic, currentReading.speed, 
                     getRecName(currentRec));
         }
         else if (notificationQueued)
         {
             lprintf(config.log_path, "%d|%d|%d|%d|%s|notify queued|",
                     currentReading.house, currentReading.outside_air, 
-                    currentReading.attic, currentReading.power, 
+                    currentReading.attic, currentReading.speed, 
                     getRecName(currentRec));
         }
         else
         {
             lprintf(config.log_path, "%d|%d|%d|%d|%s|recording|",
                     currentReading.house, currentReading.outside_air, 
-                    currentReading.attic, currentReading.power, 
+                    currentReading.attic, currentReading.speed, 
                     getRecName(currentRec));
         }
 
@@ -338,7 +338,7 @@ static void *notifyThread(void *arg)
 
             lprintf(config.log_path, "%d|%d|%d|%d|%s|%s|%s",
                     localReading.house, localReading.outside_air,
-                    localReading.attic, localReading.power,
+                    localReading.attic, localReading.speed,
                     getRecName(localRec), notifEvent, msg);
 
             // Sleep until next time window
@@ -353,7 +353,7 @@ static void *notifyThread(void *arg)
         {
             lprintf(config.log_path, "%d|%d|%d|%d|%s|notify failed|",
                     localReading.house, localReading.outside_air,
-                    localReading.attic, localReading.power, 
+                    localReading.attic, localReading.speed, 
                     getRecName(localRec));
         }
 
@@ -394,7 +394,7 @@ static int loggerWebFanPowerToggle(void* arg)
         return 0;
     }
 
-    if (current_reading.power) {
+    if (current_reading.speed) {
         //When the fan is on, the power button maps to the existing shutoff endpoint.
         if (!houseTurnOffFans(web_config)) {
             return 0;
@@ -435,23 +435,21 @@ static int loggerWebWakeFan(const AppConfig* web_config)
     }
 
     LoggerWebFanCommandJob speed_up = {web_config, houseSpeedUpFans, 0};
-    LoggerWebFanCommandJob slow_down = {web_config, houseSlowDownFans, 0};
-    pthread_t speed_up_thread;
-    pthread_t slow_down_thread;
+    pthread_t speed_up_thread[DEF_FAN_SPEED];
+    int overallOK = 1;
 
-    //Send speed-up and slow-down together because the fan uses that pair as its power-on nudge.
-    if (pthread_create(&speed_up_thread, NULL, loggerWebFanCommandThread, &speed_up) != 0) {
-        return 0;
-    }
+    //When powered off, the fan speed starts at 0
+    //So, getting to a set speed requires speeding up multiple times
+    for(int i = 0; i < DEF_FAN_SPEED; i++) {
+        if (pthread_create(&speed_up_thread[i], NULL, loggerWebFanCommandThread, &speed_up) != 0) {
+            return 0;
+        }
 
-    if (pthread_create(&slow_down_thread, NULL, loggerWebFanCommandThread, &slow_down) != 0) {
         pthread_join(speed_up_thread, NULL);
-        return 0;
+        overallOK &= speed_up.ok;
     }
 
-    pthread_join(speed_up_thread, NULL);
-    pthread_join(slow_down_thread, NULL);
-    return speed_up.ok && slow_down.ok;
+    return speed_up.ok;
 }
 
 static void* loggerWebFanCommandThread(void* arg)
@@ -474,13 +472,13 @@ static int loggerWebLogFanReading(const AppConfig* web_config, const char* detai
     //The fresh log row is what the Today panel reads after the control request reloads.
     Rec updated_rec = getRec(updated_reading.house,
                              updated_reading.outside_air,
-                             updated_reading.power);
+                             updated_reading.speed);
     return lprintf(web_config->log_path,
                    "%d|%d|%d|%d|%s|web fan|%s",
                    updated_reading.house,
                    updated_reading.outside_air,
                    updated_reading.attic,
-                   updated_reading.power,
+                   updated_reading.speed,
                    getRecName(updated_rec),
                    detail ? detail : "");
 }

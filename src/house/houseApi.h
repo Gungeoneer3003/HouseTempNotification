@@ -7,7 +7,7 @@ typedef struct {
     int house;
     int outside_air;
     int attic;
-    int power;
+    int speed;
 } SensorReading;
 
 int houseReadSensor(const AppConfig* config, SensorReading* reading);

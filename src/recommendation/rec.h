@@ -9,7 +9,7 @@ typedef enum {
     REC_CLOSE
 } Rec;
 
-Rec getRec(int house, int outside_air, int power);
+Rec getRec(int house, int outside_air, int speed);
 const char* getRecName(Rec rec);
 long secUntilWindow(Rec rec, time_t now);
 int withinWindow(Rec rec, time_t now);
