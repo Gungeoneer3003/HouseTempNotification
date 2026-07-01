@@ -25,8 +25,7 @@ void webControlsConfigureToday(const AppConfig* config)
     static const char *const logger_web_today_columns[] = {
         "Inside",
         "Outside",
-        "Attic",
-        "Fan Speed"};
+        "Attic"};
 
     if (!config) {
         return;

@@ -377,7 +377,7 @@ tr:last-child td {
 /* Fan control boxes share the Today panel styling but stay compact enough for the header area. */
 .today-controls {
     display: grid;
-    grid-template-columns: 44px 68px;
+    grid-template-columns: minmax(104px, 128px) 68px;
     gap: 10px;
 }
 
@@ -390,9 +390,16 @@ tr:last-child td {
 
 .today-speed-box {
     display: grid;
-    place-items: center;
-    padding: 10px 6px;
+    grid-template-columns: minmax(0, 1fr) 34px;
+    gap: 8px;
     align-items: center;
+    padding: 10px;
+}
+
+.today-speed-readout {
+    display: grid;
+    gap: 3px;
+    min-width: 0;
 }
 
 .today-step-buttons {
@@ -491,7 +498,7 @@ tr:last-child td {
     }
 
     .today-controls {
-        grid-template-columns: 44px 68px;
+        grid-template-columns: minmax(0, 1fr) 68px;
     }
 }
 

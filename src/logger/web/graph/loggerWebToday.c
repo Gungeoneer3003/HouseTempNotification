@@ -306,6 +306,10 @@ static void sendTodayControls(int client_fd,
 
     loggerWebSendAll(client_fd, "<div class=\"today-controls\" aria-label=\"Fan controls\">");
     loggerWebSendAll(client_fd, "<div class=\"today-control-box today-speed-box\">");
+    loggerWebSendAll(client_fd, "<div class=\"today-speed-readout\"><span class=\"today-label\">Fan speed</span>");
+    loggerWebSendAll(client_fd, "<span class=\"today-value\">");
+    sendTodayValue(client_fd, snapshot->has_fan_speed ? snapshot->fan_speed : 0.0, 1);
+    loggerWebSendAll(client_fd, "</span></div>");
     loggerWebSendAll(client_fd, "<div class=\"today-step-buttons\">");
     sendTodayActionButton(client_fd,
                           "today-triangle-button today-triangle-button--up",

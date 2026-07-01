@@ -226,6 +226,18 @@
         const speedBox = document.createElement("div");
         speedBox.className = "today-control-box today-speed-box";
 
+        const readout = document.createElement("div");
+        readout.className = "today-speed-readout";
+        const label = document.createElement("span");
+        label.className = "today-label";
+        label.textContent = "Fan speed";
+        readout.appendChild(label);
+        const value = document.createElement("span");
+        value.className = "today-value";
+        value.textContent = Number.isFinite(controls.fanSpeed) ? controls.fanSpeed.toFixed(0) : "0";
+        readout.appendChild(value);
+        speedBox.appendChild(readout);
+
         const stepButtons = document.createElement("div");
         stepButtons.className = "today-step-buttons";
         stepButtons.appendChild(createTodayControlButton({
