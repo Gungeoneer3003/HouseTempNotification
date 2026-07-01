@@ -393,7 +393,7 @@ tr:last-child td {
 
 .today-speed-box {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 34px;
+    grid-template-columns: minmax(0, 1fr) 44px;
     gap: 8px;
     align-items: center;
     padding: 10px;
@@ -422,8 +422,8 @@ tr:last-child td {
 }
 
 .today-triangle-button {
-    width: 32px;
-    height: 38px;
+    width: 42px;
+    height: 30px;
 }
 
 .today-triangle-button:hover:not(:disabled),
@@ -446,15 +446,15 @@ tr:last-child td {
 }
 
 .today-triangle-button--up .today-triangle {
-    border-left: 7px solid transparent;
-    border-right: 7px solid transparent;
-    border-bottom: 18px solid currentColor;
+    border-left: 14px solid transparent;
+    border-right: 14px solid transparent;
+    border-bottom: 10px solid currentColor;
 }
 
 .today-triangle-button--down .today-triangle {
-    border-left: 7px solid transparent;
-    border-right: 7px solid transparent;
-    border-top: 18px solid currentColor;
+    border-left: 14px solid transparent;
+    border-right: 14px solid transparent;
+    border-top: 10px solid currentColor;
 }
 
 .today-power-control {
