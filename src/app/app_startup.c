@@ -33,8 +33,9 @@ void appStartLoggerWeb(const AppConfig* config)
         "Detail"};
     static const char *const logger_web_temperature_graph_columns[] = {
         "Inside",
-        "Attic",
-        "Outside"};
+        "Outside",
+        "Attic"
+        };
 
     // The web server setup stays declarative here; web_controls owns button behavior.
     if (loggerWebStart(config->log_path,

@@ -1,7 +1,7 @@
 (function () {
     const root = document.getElementById("graphs");
     const todayRoot = document.getElementById("today");
-    const colors = ["#22c55e", "#38bdf8", "#f59e0b", "#e879f9", "#f43f5e", "#a3e635"];
+    const colors = ["#22c55e", "#f59e0b", "#38bdf8", "#e879f9", "#f43f5e", "#a3e635"];
     const rangeDay = "day";
     const rangeThreeDays = "three-days";
     const rangeWeek = "week";
@@ -191,9 +191,11 @@
 
         const readings = document.createElement("div");
         readings.className = "today-readings";
-        today.columns.forEach((column) => {
+        today.columns.forEach((column, index) => {
             const item = document.createElement("div");
             item.className = "today-reading";
+            item.style.setProperty("--series-color", colorForSeries(index));
+            item.style.borderColor = transparentColor(colorForSeries(index), 0.46);
 
             const label = document.createElement("span");
             label.className = "today-label";
@@ -202,7 +204,7 @@
 
             const number = document.createElement("span");
             number.className = "today-value";
-            number.textContent = Number.isFinite(column.value) ? formatNumber(column.value) : "--";
+            number.textContent = Number.isFinite(column.value) ? formatReadingValue(column) : "--";
             item.appendChild(number);
             readings.appendChild(item);
         });
@@ -223,18 +225,6 @@
 
         const speedBox = document.createElement("div");
         speedBox.className = "today-control-box today-speed-box";
-
-        const readout = document.createElement("div");
-        readout.className = "today-speed-readout";
-        const label = document.createElement("span");
-        label.className = "today-label";
-        label.textContent = "Fan speed";
-        readout.appendChild(label);
-        const value = document.createElement("span");
-        value.className = "today-value";
-        value.textContent = Number.isFinite(controls.fanSpeed) ? formatNumber(controls.fanSpeed) : "--";
-        readout.appendChild(value);
-        speedBox.appendChild(readout);
 
         const stepButtons = document.createElement("div");
         stepButtons.className = "today-step-buttons";
@@ -794,6 +784,12 @@
 
     function formatNumber(value) {
         return Math.abs(value) >= 100 ? value.toFixed(0) : value.toFixed(1);
+    }
+
+    function formatReadingValue(column) {
+        return column && column.name === "Fan Speed"
+            ? column.value.toFixed(0)
+            : formatNumber(column.value);
     }
 
     function emptyMessage(message) {

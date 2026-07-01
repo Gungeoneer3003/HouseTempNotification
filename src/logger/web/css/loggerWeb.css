@@ -38,9 +38,11 @@ tr:last-child td {
 
 .nav {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     gap: 6px;
     margin: 0 0 16px;
+    overflow-x: auto;
+    white-space: nowrap;
 }
 
 /* Navigation buttons use CSS-drawn icons so the embedded server needs no extra assets. */
@@ -59,6 +61,7 @@ tr:last-child td {
     line-height: 1;
     text-decoration: none;
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    flex: 0 0 auto;
 }
 
 .nav-button:hover,
@@ -341,7 +344,17 @@ tr:last-child td {
     display: grid;
     gap: 3px;
     min-width: 0;
+    padding-left: 8px;
+    border-left: 2px solid var(--series-color, #334155);
 }
+
+/* Keep server-rendered Today labels in step with the graph color sequence. */
+.today-reading:nth-child(1) { --series-color: #22c55e; }
+.today-reading:nth-child(2) { --series-color: #f59e0b; }
+.today-reading:nth-child(3) { --series-color: #38bdf8; }
+.today-reading:nth-child(4) { --series-color: #e879f9; }
+.today-reading:nth-child(5) { --series-color: #f43f5e; }
+.today-reading:nth-child(6) { --series-color: #a3e635; }
 
 .today-label,
 .today-updated,
@@ -356,10 +369,15 @@ tr:last-child td {
     font-weight: 700;
 }
 
+.today-reading .today-label {
+    color: var(--series-color, #94a3b8);
+    font-weight: 700;
+}
+
 /* Fan control boxes share the Today panel styling but stay compact enough for the header area. */
 .today-controls {
     display: grid;
-    grid-template-columns: minmax(104px, 128px) 68px;
+    grid-template-columns: 44px 68px;
     gap: 10px;
 }
 
@@ -372,16 +390,9 @@ tr:last-child td {
 
 .today-speed-box {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 34px;
-    gap: 8px;
+    place-items: center;
+    padding: 10px 6px;
     align-items: center;
-    padding: 10px;
-}
-
-.today-speed-readout {
-    display: grid;
-    gap: 3px;
-    min-width: 0;
 }
 
 .today-step-buttons {
@@ -480,7 +491,7 @@ tr:last-child td {
     }
 
     .today-controls {
-        grid-template-columns: minmax(0, 1fr) 68px;
+        grid-template-columns: 44px 68px;
     }
 }
 

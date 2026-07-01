@@ -35,7 +35,8 @@ static void sendTodayActionButton(int client_fd,
                                   const char* label,
                                   int enabled,
                                   const char* icon_class);
-static void sendTodayValue(int client_fd, double value);
+static void sendTodayValue(int client_fd, double value, int integer_value);
+static int isFanSpeedColumn(const char* name);
 static void writeTodayControlsJson(int client_fd,
                                    const LoggerWebServer* server,
                                    const LoggerWebTodaySnapshot* snapshot);
@@ -191,8 +192,8 @@ static int readTodaySnapshot(const LoggerWebServer* server, LoggerWebTodaySnapsh
     }
 
     size_t column_count = loggerWebTotalColumnCount(server);
-    size_t fan_power_index = 0;
-    int has_fan_power_column = loggerWebResolveColumnIndex(server, "Power", &fan_power_index);
+    size_t fan_speed_index = 0;
+    int has_fan_speed_column = loggerWebResolveColumnIndex(server, "Fan Speed", &fan_speed_index);
     FILE* file = fopen(server->log_path, "r");
     if (file) {
         char** fields = calloc(column_count, sizeof(*fields));
@@ -209,8 +210,8 @@ static int readTodaySnapshot(const LoggerWebServer* server, LoggerWebTodaySnapsh
             int any_value = 0;
             double row_values[LOGGER_WEB_TODAY_MAX_COLUMNS] = {0};
             int row_has_value[LOGGER_WEB_TODAY_MAX_COLUMNS] = {0};
-            double row_fan_power = 0.0;
-            int row_has_fan_power = 0;
+            double row_fan_speed = 0.0;
+            int row_has_fan_speed = 0;
 
             for (size_t i = 0; i < server->today_column_count; i++) {
                 const char* field = loggerWebFieldForColumn(
@@ -222,13 +223,13 @@ static int readTodaySnapshot(const LoggerWebServer* server, LoggerWebTodaySnapsh
                 }
             }
 
-            if (has_fan_power_column &&
-                loggerWebParseDouble(loggerWebFieldForColumn(fields, fan_power_index),
-                                     &row_fan_power)) {
-                row_has_fan_power = 1;
+            if (has_fan_speed_column &&
+                loggerWebParseDouble(loggerWebFieldForColumn(fields, fan_speed_index),
+                                     &row_fan_speed)) {
+                row_has_fan_speed = 1;
             }
 
-            if (!any_value && !row_has_fan_power) {
+            if (!any_value && !row_has_fan_speed) {
                 continue;
             }
 
@@ -239,11 +240,11 @@ static int readTodaySnapshot(const LoggerWebServer* server, LoggerWebTodaySnapsh
                 }
             }
 
-            //Use the existing Power log column as the fan state source for the control boxes.
-            if (row_has_fan_power) {
-                snapshot->fan_speed = row_fan_power;
+            //Use the Fan Speed log column as the single source for both reading and power state.
+            if (row_has_fan_speed) {
+                snapshot->fan_speed = row_fan_speed;
                 snapshot->has_fan_speed = 1;
-                snapshot->fan_power_on = row_fan_power != 0.0;
+                snapshot->fan_power_on = row_fan_speed != 0.0;
                 snapshot->has_fan_power = 1;
             }
 
@@ -281,9 +282,9 @@ static void sendTodayReadings(int client_fd,
         loggerWebSendEscaped(client_fd, snapshot->names[i]);
         loggerWebSendAll(client_fd, "</span><span class=\"today-value\">");
         if (snapshot->has_value[i]) {
-            sendTodayValue(client_fd, snapshot->values[i]);
+            sendTodayValue(client_fd, snapshot->values[i], isFanSpeedColumn(snapshot->names[i]));
         } else {
-            loggerWebSendAll(client_fd, "(Off)");
+            loggerWebSendAll(client_fd, "--");
         }
         loggerWebSendAll(client_fd, "</span></div>");
     }
@@ -305,14 +306,6 @@ static void sendTodayControls(int client_fd,
 
     loggerWebSendAll(client_fd, "<div class=\"today-controls\" aria-label=\"Fan controls\">");
     loggerWebSendAll(client_fd, "<div class=\"today-control-box today-speed-box\">");
-    loggerWebSendAll(client_fd, "<div class=\"today-speed-readout\"><span class=\"today-label\">Fan speed</span>");
-    loggerWebSendAll(client_fd, "<span class=\"today-value\">");
-    if (snapshot->has_fan_speed) {
-        sendTodayValue(client_fd, snapshot->fan_speed);
-    } else {
-        loggerWebSendAll(client_fd, "(Off)");
-    }
-    loggerWebSendAll(client_fd, "</span></div>");
     loggerWebSendAll(client_fd, "<div class=\"today-step-buttons\">");
     sendTodayActionButton(client_fd,
                           "today-triangle-button today-triangle-button--up",
@@ -361,14 +354,18 @@ static void sendTodayActionButton(int client_fd,
     loggerWebSendAll(client_fd, "\" aria-hidden=\"true\"></span></button>");
 }
 
-static void sendTodayValue(int client_fd, double value) {
+static void sendTodayValue(int client_fd, double value, int integer_value) {
     char number[64];
     double absolute_value = value < 0.0 ? -value : value;
     snprintf(number,
              sizeof(number),
-             absolute_value >= 100.0 ? "%.0f" : "%.1f",
+             integer_value || absolute_value >= 100.0 ? "%.0f" : "%.1f",
              value);
     loggerWebSendEscaped(client_fd, number);
+}
+
+static int isFanSpeedColumn(const char* name) {
+    return loggerWebStringEqualsIgnoreCase(name, "Fan Speed");
 }
 
 void loggerWebHandleTodayControl(int client_fd,
@@ -459,17 +456,17 @@ static void writeTodayControlsJson(int client_fd,
     loggerWebSendAll(client_fd, "{\"enabled\":true,\"fanSpeed\":");
     if (snapshot->has_fan_speed) {
         char number[64];
-        snprintf(number, sizeof(number), "%.17g", snapshot->fan_speed);
+        snprintf(number, sizeof(number), "%.0f", snapshot->fan_speed);
         loggerWebSendAll(client_fd, number);
     } else {
-        loggerWebSendAll(client_fd, "null");
+        loggerWebSendAll(client_fd, "0");
     }
 
     loggerWebSendAll(client_fd, ",\"fanPowerOn\":");
     if (snapshot->has_fan_power) {
         loggerWebSendAll(client_fd, snapshot->fan_power_on ? "true" : "false");
     } else {
-        loggerWebSendAll(client_fd, "null");
+        loggerWebSendAll(client_fd, "false");
     }
 
     loggerWebSendAll(client_fd, ",\"canSpeedUp\":");
