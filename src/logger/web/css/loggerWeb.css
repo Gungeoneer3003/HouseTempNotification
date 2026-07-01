@@ -342,10 +342,13 @@ tr:last-child td {
 
 .today-reading {
     display: grid;
-    gap: 3px;
+    gap: 6px;
     min-width: 0;
-    padding-left: 8px;
-    border-left: 2px solid var(--series-color, #334155);
+    padding: 10px;
+    background: #0b1220;
+    border: 1px solid #334155;
+    border-left: 3px solid var(--series-color, #334155);
+    border-radius: 4px;
 }
 
 /* Keep server-rendered Today labels in step with the graph color sequence. */
@@ -420,7 +423,7 @@ tr:last-child td {
 
 .today-triangle-button {
     width: 32px;
-    height: 30px;
+    height: 38px;
 }
 
 .today-triangle-button:hover:not(:disabled),
@@ -445,13 +448,13 @@ tr:last-child td {
 .today-triangle-button--up .today-triangle {
     border-left: 7px solid transparent;
     border-right: 7px solid transparent;
-    border-bottom: 10px solid currentColor;
+    border-bottom: 18px solid currentColor;
 }
 
 .today-triangle-button--down .today-triangle {
     border-left: 7px solid transparent;
     border-right: 7px solid transparent;
-    border-top: 10px solid currentColor;
+    border-top: 18px solid currentColor;
 }
 
 .today-power-control {
