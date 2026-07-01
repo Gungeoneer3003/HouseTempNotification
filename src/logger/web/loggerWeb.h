@@ -11,6 +11,8 @@ typedef struct {
     void* user;
 } LoggerWebTodayControls;
 
+typedef int (*LoggerWebAccessPoller)(void* user);
+
 int loggerWebStart(const char* log_path,
                    unsigned short port,
                    const char* title,
@@ -18,6 +20,7 @@ int loggerWebStart(const char* log_path,
                    size_t column_header_count);
 int loggerWebSetRootDirectory(const char* subdirectory);
 int loggerWebAddNavLink(const char* label, const char* href, int root_relative);
+int loggerWebSetAccessPoller(int mode, LoggerWebAccessPoller poller, void* user);
 int loggerWebInsertGraph(const char* title,
                          const char* x_column,
                          const char* y_column);

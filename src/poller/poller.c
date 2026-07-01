@@ -16,6 +16,27 @@ static void logReadingEvent(const char* log_path,
                             const char* detail);
 static const char* ignoredWindowEvent(Rec rec);
 
+int pollerLogCurrentReading(const AppConfig* config, const char* event, const char* detail)
+{
+    SensorReading currentReading;
+    if (!config || !houseReadSensor(config, &currentReading))
+    {
+        if (config) {
+            lprint(config->log_path, "-|-|-|-|-|sensor fail|web poll");
+        }
+        return 0;
+    }
+
+    // Web-triggered polls refresh Today data without running notification policy.
+    Rec currentRec = getRec(currentReading.house, currentReading.outside_air, currentReading.speed);
+    logReadingEvent(config->log_path,
+                    &currentReading,
+                    currentRec,
+                    event ? event : "web poll",
+                    detail ? detail : "");
+    return 1;
+}
+
 void pollerRun(const AppConfig* config)
 {
     time_t lastLogTrimTime = time(NULL);

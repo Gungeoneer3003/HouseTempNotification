@@ -1,9 +1,14 @@
 #include "app_startup.h"
 
 #include "logger.h"
+#include "poller.h"
 #include "settings.h"
 #include "web/loggerWeb.h"
 #include "web_controls.h"
+
+#if LOGGER_WEB_PORT > 0
+static int loggerWebPollNow(void* arg);
+#endif
 
 void appWriteStartupLog(const AppConfig* config)
 {
@@ -56,6 +61,7 @@ void appStartLoggerWeb(const AppConfig* config)
 
         webControlsConfigureToday(config);
         loggerWebSetRootDirectory("graphs");
+        loggerWebSetAccessPoller(LOGGER_WEB_POLL_ON_ACCESS, loggerWebPollNow, (void*)config);
 
         // The Airscape controller lives outside this web app, so render it as a plain link.
         loggerWebAddNavLink("Airscape", config->house_link, 0);
@@ -64,3 +70,11 @@ void appStartLoggerWeb(const AppConfig* config)
     (void)config;
 #endif
 }
+
+#if LOGGER_WEB_PORT > 0
+static int loggerWebPollNow(void* arg)
+{
+    const AppConfig* config = (const AppConfig*)arg;
+    return pollerLogCurrentReading(config, "web poll", "page access");
+}
+#endif

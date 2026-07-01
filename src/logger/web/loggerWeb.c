@@ -55,6 +55,15 @@ int loggerWebAddNavLink(const char* label, const char* href, int root_relative) 
     return 0;
 }
 
+int loggerWebSetAccessPoller(int mode, LoggerWebAccessPoller poller, void* user) {
+    (void)mode;
+    (void)poller;
+    (void)user;
+
+    fprintf(stderr, "Logger web viewer is not supported on Windows\n");
+    return 0;
+}
+
 int loggerWebInsertGraph(const char* title,
                          const char* x_column,
                          const char* y_column) {
@@ -290,6 +299,26 @@ int loggerWebAddNavLink(const char* label, const char* href, int root_relative) 
     return 1;
 }
 
+int loggerWebSetAccessPoller(int mode, LoggerWebAccessPoller poller, void* user) {
+    if (mode < 0 || mode > 2) {
+        return 0;
+    }
+
+    pthread_mutex_lock(&active_server_mutex);
+    LoggerWebServer* server = active_server;
+    if (!server) {
+        pthread_mutex_unlock(&active_server_mutex);
+        return 0;
+    }
+
+    // Mode 0 disables page-load polling even if a callback is provided.
+    server->access_poll_mode = mode;
+    server->access_poller = mode == 0 ? NULL : poller;
+    server->access_poller_user = mode == 0 ? NULL : user;
+    pthread_mutex_unlock(&active_server_mutex);
+    return 1;
+}
+
 //Enable or disable the refresh button on the web interface
 int loggerWebShowRefreshButton(int enabled) {
     pthread_mutex_lock(&active_server_mutex);
@@ -376,6 +405,9 @@ static void freeServerDisplay(LoggerWebServer* server) {
     server->show_stats = 0;
     server->show_today_on_other_pages = 0;
     server->show_today_controls = 0;
+    server->access_poll_mode = 0;
+    server->access_poller = NULL;
+    server->access_poller_user = NULL;
     memset(&server->today_controls, 0, sizeof(server->today_controls));
 }
 

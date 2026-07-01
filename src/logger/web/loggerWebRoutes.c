@@ -16,6 +16,7 @@ appropriate response back to the client.
 #include <sys/types.h>
 
 static void sendRoot(int client_fd, const LoggerWebServer* server);
+static void pollForPageAccess(const LoggerWebServer* server, int is_root);
 
 //Parse the HTTP method and path from the request line.
 static int parseRequest(const char* request,
@@ -119,16 +120,20 @@ void loggerWebHandleClient(int client_fd, const LoggerWebServer* server) {
 
     //Dispatch the parsed request path to the matching page or asset handler.
     if (pathEquals(path, "/")) {
+        pollForPageAccess(server, 1);
         sendRoot(client_fd, server);
     } else if (pathEquals(path, "/log")) {
+        pollForPageAccess(server, 0);
         loggerWebSendIndex(client_fd, server, 0);
     } else if (pathEquals(path, "/graphs/data") ||
                (loggerWebRootDirectoryEquals(server, LOGGER_WEB_ROOT_GRAPHS) &&
                 pathEquals(path, "/data"))) {
         loggerWebSendGraphData(client_fd, server, loggerWebParseGraphRange(request));
     } else if (pathEquals(path, "/graphs")) {
+        pollForPageAccess(server, 0);
         loggerWebSendGraphs(client_fd, server, 0);
     } else if (pathEquals(path, "/raw")) {
+        pollForPageAccess(server, 0);
         loggerWebSendRawLog(client_fd, server, 0);
     } else if (pathEquals(path, "/css/loggerWeb.css") ||
                pathEquals(path, "/style.css")) {
@@ -152,6 +157,27 @@ static void sendRoot(int client_fd, const LoggerWebServer* server) {
     }
 
     loggerWebSendIndex(client_fd, server, 1);
+}
+
+static void pollForPageAccess(const LoggerWebServer* server, int is_root) {
+    LoggerWebAccessPoller poller = NULL;
+    void* user = NULL;
+    int mode = 0;
+
+    // Copy callback state under the lock, then poll without holding server state.
+    pthread_mutex_lock(&active_server_mutex);
+    if (server) {
+        mode = server->access_poll_mode;
+        poller = server->access_poller;
+        user = server->access_poller_user;
+    }
+    pthread_mutex_unlock(&active_server_mutex);
+
+    if (!poller || mode == 0 || (mode == 1 && !is_root)) {
+        return;
+    }
+
+    (void)poller(user);
 }
 
 

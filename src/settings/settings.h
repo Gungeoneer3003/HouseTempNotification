@@ -77,4 +77,10 @@
 #define DEF_FAN_SPEED 4
 #endif
 
+//When web page loads should poll and log a fresh sensor reading.
+//0 = don't update, 1 = update only if the root page is accessed, 2 = update if any page is accessed.
+#ifndef LOGGER_WEB_POLL_ON_ACCESS
+#define LOGGER_WEB_POLL_ON_ACCESS 1
+#endif
+
 #endif

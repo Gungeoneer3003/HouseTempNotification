@@ -104,6 +104,9 @@ typedef struct {
     LoggerWebNavLink* nav_links;
     size_t nav_link_count;
     size_t nav_link_capacity;
+    int access_poll_mode;
+    LoggerWebAccessPoller access_poller;
+    void* access_poller_user;
 } LoggerWebServer;
 
 typedef enum {
