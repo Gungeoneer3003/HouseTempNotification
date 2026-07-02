@@ -23,14 +23,14 @@ RECOMMENDATION_DIR = $(SRC_DIR)/recommendation
 SETTINGS_DIR = $(SRC_DIR)/settings
 WEB_CONTROLS_DIR = $(SRC_DIR)/web_controls
 MODULE_DIRS = $(APP_DIR) $(CONFIG_DIR) $(HOUSE_DIR) $(NOTIFICATION_DIR) $(LOCK_DIR) $(JSON_DIR) $(LOGGER_DIR) $(LOGGER_WEB_DIR) $(LOGGER_WEB_GRAPH_DIR) $(HTTP_DIR) $(POLLER_DIR) $(PORTABLE_DIR) $(RECOMMENDATION_DIR) $(SETTINGS_DIR) $(WEB_CONTROLS_DIR)
-LOGGER_WEB_SRC = $(LOGGER_WEB_DIR)/loggerWeb.c $(LOGGER_WEB_DIR)/loggerWebServer.c $(LOGGER_WEB_DIR)/loggerWebRoutes.c $(LOGGER_WEB_DIR)/loggerWebResponse.c $(LOGGER_WEB_DIR)/loggerWebTemplate.c $(LOGGER_WEB_DIR)/loggerWebPages.c $(LOGGER_WEB_DIR)/loggerWebAssets.c $(LOGGER_WEB_DIR)/loggerWebLogRows.c $(LOGGER_WEB_DIR)/loggerWebTime.c $(LOGGER_WEB_GRAPH_DIR)/loggerWebGraphConfig.c $(LOGGER_WEB_GRAPH_DIR)/loggerWebGraphRange.c $(LOGGER_WEB_GRAPH_DIR)/loggerWebGraphJson.c $(LOGGER_WEB_GRAPH_DIR)/loggerWebToday.c
+LOGGER_WEB_SRC = $(PORTABLE_DIR)/portable_socket.c $(LOGGER_WEB_DIR)/loggerWeb.c $(LOGGER_WEB_DIR)/loggerWebServer.c $(LOGGER_WEB_DIR)/loggerWebRoutes.c $(LOGGER_WEB_DIR)/loggerWebResponse.c $(LOGGER_WEB_DIR)/loggerWebTemplate.c $(LOGGER_WEB_DIR)/loggerWebPages.c $(LOGGER_WEB_DIR)/loggerWebAssets.c $(LOGGER_WEB_DIR)/loggerWebLogRows.c $(LOGGER_WEB_DIR)/loggerWebTime.c $(LOGGER_WEB_GRAPH_DIR)/loggerWebGraphConfig.c $(LOGGER_WEB_GRAPH_DIR)/loggerWebGraphRange.c $(LOGGER_WEB_GRAPH_DIR)/loggerWebGraphJson.c $(LOGGER_WEB_GRAPH_DIR)/loggerWebToday.c
 SRC = $(SRC_DIR)/houseNotif.c $(APP_DIR)/app_startup.c $(POLLER_DIR)/poller.c $(NOTIFICATION_DIR)/notification_worker.c $(WEB_CONTROLS_DIR)/web_controls.c $(CONFIG_DIR)/config.c $(HOUSE_DIR)/houseApi.c $(HTTP_DIR)/httpClient.c $(LOCK_DIR)/instanceLock.c $(JSON_DIR)/jsonUtils.c $(LOGGER_DIR)/logger.c $(LOGGER_WEB_SRC) $(PORTABLE_DIR)/portable.c $(RECOMMENDATION_DIR)/rec.c
 TEST_TARGET = test_core
 TEST_SRC = tests/test_core.c $(JSON_DIR)/jsonUtils.c $(RECOMMENDATION_DIR)/rec.c
 NOTIFY_TEST_TARGET = test_notification
 NOTIFY_TEST_SRC = tests/test_notification.c $(CONFIG_DIR)/config.c $(HOUSE_DIR)/houseApi.c $(HTTP_DIR)/httpClient.c $(JSON_DIR)/jsonUtils.c $(PORTABLE_DIR)/portable.c
 LOGGER_WEB_TEST_TARGET = test_logger_web
-LOGGER_WEB_TEST_SRC = tests/test_logger_web.c $(LOGGER_WEB_SRC)
+LOGGER_WEB_TEST_SRC = tests/test_logger_web.c $(LOGGER_DIR)/logger.c $(LOGGER_WEB_SRC)
 CC = gcc
 CFLAGS = -g -std=c11 -Wall -Wextra -Wpedantic $(addprefix -I,$(MODULE_DIRS))
 LIBS = -lcurl -pthread

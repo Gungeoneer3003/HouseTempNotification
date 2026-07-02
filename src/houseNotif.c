@@ -5,6 +5,7 @@
 #include "app_startup.h"
 #include "config.h"
 #include "instanceLock.h"
+#include "logger.h"
 #include "notification_worker.h"
 #include "poller.h"
 
@@ -21,10 +22,19 @@ int main(void)
         return EXIT_FAILURE;
     }
 
+    Logger logger;
+    if (!logger_init_file(&logger, config.log_path))
+    {
+        fprintf(stderr, "Failed to initialize logger\n");
+        return EXIT_FAILURE;
+    }
+    config.logger = &logger;
+
     // Hold the process lock for the full lifetime of the application.
     InstanceLock lock = INSTANCE_LOCK_INIT;
     if (!instanceLockAcquire(&lock, config.lock_path))
     {
+        logger_destroy(&logger);
         return EXIT_FAILURE;
     }
 
@@ -32,6 +42,7 @@ int main(void)
     if (curl_global_init(CURL_GLOBAL_DEFAULT) != 0)
     {
         fprintf(stderr, "Failed to initialize libcurl\n");
+        logger_destroy(&logger);
         instanceLockRelease(&lock);
         return EXIT_FAILURE;
     }
@@ -42,6 +53,7 @@ int main(void)
     if (!notificationWorkerStart(&config))
     {
         curl_global_cleanup();
+        logger_destroy(&logger);
         instanceLockRelease(&lock);
         return EXIT_FAILURE;
     }
@@ -50,6 +62,7 @@ int main(void)
     pollerRun(&config);
 
     curl_global_cleanup();
+    logger_destroy(&logger);
     instanceLockRelease(&lock);
     return EXIT_SUCCESS;
 }

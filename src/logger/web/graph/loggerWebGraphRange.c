@@ -7,6 +7,7 @@
 */
 #ifndef _WIN32
 #define _POSIX_C_SOURCE 200809L
+#endif
 
 #include "../loggerWeb.h"
 #include "../loggerWebInternal.h"
@@ -233,5 +234,3 @@ int loggerWebGraphStatsWindow(time_t now, time_t* window_start, time_t* window_e
     return 1;
 }
 
-
-#endif

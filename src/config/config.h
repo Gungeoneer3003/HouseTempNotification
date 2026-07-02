@@ -1,6 +1,8 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
+typedef struct Logger Logger;
+
 typedef struct {
     const char* api_token;
     const char* user_key;
@@ -11,6 +13,7 @@ typedef struct {
     const char* slow_down_part;
     const char* log_path;
     const char* lock_path;
+    Logger* logger;
     char cgi_url[256];
     char shutoff_url[256];
     char speed_up_url[256];

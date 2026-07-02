@@ -6,16 +6,15 @@ sending HTTP response headers, static files, and escaped response bodies.
 
 #ifndef _WIN32
 #define _POSIX_C_SOURCE 200809L
+#endif
 
 #include "loggerWeb.h"
 #include "loggerWebInternal.h"
+
 #include <stdio.h>
 #include <string.h>
-#include <sys/socket.h>
-#include <sys/types.h>
 
-//HTML header for templated pages.
-void loggerWebSendHtmlHeader(int client_fd) {
+void loggerWebSendHtmlHeader(PortableSocket client_fd) {
     loggerWebSendAll(client_fd,
             "HTTP/1.1 200 OK\r\n"
             "Content-Type: text/html; charset=utf-8\r\n"
@@ -23,8 +22,7 @@ void loggerWebSendHtmlHeader(int client_fd) {
             "Connection: close\r\n\r\n");
 }
 
-//Send a 404 Not Found response to the client.
-void loggerWebSendNotFound(int client_fd) {
+void loggerWebSendNotFound(PortableSocket client_fd) {
     loggerWebSendAll(client_fd,
             "HTTP/1.1 404 Not Found\r\n"
             "Content-Type: text/plain; charset=utf-8\r\n"
@@ -32,16 +30,23 @@ void loggerWebSendNotFound(int client_fd) {
             "Not found\n");
 }
 
-//Send an empty success response for state-changing control requests.
-void loggerWebSendNoContent(int client_fd) {
+void loggerWebSendUnauthorized(PortableSocket client_fd) {
+    loggerWebSendAll(client_fd,
+            "HTTP/1.1 401 Unauthorized\r\n"
+            "Content-Type: text/plain; charset=utf-8\r\n"
+            "Cache-Control: no-store\r\n"
+            "Connection: close\r\n\r\n"
+            "Unauthorized\n");
+}
+
+void loggerWebSendNoContent(PortableSocket client_fd) {
     loggerWebSendAll(client_fd,
             "HTTP/1.1 204 No Content\r\n"
             "Cache-Control: no-store\r\n"
             "Connection: close\r\n\r\n");
 }
 
-//Send a short plain-text status response for control failures.
-void loggerWebSendPlainStatus(int client_fd,
+void loggerWebSendPlainStatus(PortableSocket client_fd,
                               int status_code,
                               const char* reason,
                               const char* body) {
@@ -60,14 +65,12 @@ void loggerWebSendPlainStatus(int client_fd,
     loggerWebSendAll(client_fd, body ? body : "");
 }
 
-//Send a fixed number of bytes, handling partial socket writes.
-void loggerWebSendBytes(int fd, const char* data, size_t length) {
+void loggerWebSendBytes(PortableSocket fd, const char* data, size_t length) {
     size_t remaining = length;
     const char* cursor = data;
 
-    //Loop until all bytes have been sent
     while (remaining > 0) {
-        ssize_t sent = send(fd, cursor, remaining, 0);
+        long sent = portableSocketSend(fd, cursor, remaining);
         if (sent <= 0) {
             return;
         }
@@ -77,13 +80,11 @@ void loggerWebSendBytes(int fd, const char* data, size_t length) {
     }
 }
 
-//Send a null-terminated string.
-void loggerWebSendAll(int fd, const char* data) {
+void loggerWebSendAll(PortableSocket fd, const char* data) {
     loggerWebSendBytes(fd, data, strlen(data));
 }
 
-//Send text with HTML escaping.
-void loggerWebSendEscaped(int fd, const char* value) {
+void loggerWebSendEscaped(PortableSocket fd, const char* value) {
     for (const char* p = value; p && *p; p++) {
         switch (*p) {
             case '&':
@@ -107,8 +108,7 @@ void loggerWebSendEscaped(int fd, const char* value) {
     }
 }
 
-//Send text with JSON escaping.
-void loggerWebSendJsonEscaped(int fd, const char* value) {
+void loggerWebSendJsonEscaped(PortableSocket fd, const char* value) {
     for (const unsigned char* p = (const unsigned char*)value; p && *p; p++) {
         switch (*p) {
             case '"':
@@ -146,8 +146,9 @@ void loggerWebSendJsonEscaped(int fd, const char* value) {
     }
 }
 
-//Send a static file with the specified content type.
-void loggerWebSendStaticFile(int client_fd, const char* content_type, const char* path) {
+void loggerWebSendStaticFile(PortableSocket client_fd,
+                             const char* content_type,
+                             const char* path) {
     loggerWebSendAll(client_fd,
             "HTTP/1.1 200 OK\r\n"
             "Content-Type: ");
@@ -169,6 +170,3 @@ void loggerWebSendStaticFile(int client_fd, const char* content_type, const char
 
     fclose(file);
 }
-
-
-#endif

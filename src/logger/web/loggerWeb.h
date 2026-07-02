@@ -2,6 +2,19 @@
 #define LOGGER_WEB_H
 
 #include <stddef.h>
+#include "logger.h"
+
+typedef struct {
+    const Logger* logger;
+    const char* log_path;
+    unsigned short port;
+    const char* bind_address;
+    const char* auth_token;
+    const char* title;
+    const char* const* column_headers;
+    size_t column_header_count;
+    size_t log_row_limit;
+} LoggerWebConfig;
 
 // Optional callbacks used by the custom Today panel fan buttons.
 typedef struct {
@@ -18,9 +31,12 @@ int loggerWebStart(const char* log_path,
                    const char* title,
                    const char* const* column_headers,
                    size_t column_header_count);
+int loggerWebStartWithConfig(const LoggerWebConfig* config);
+void loggerWebStop(void);
 int loggerWebSetRootDirectory(const char* subdirectory);
 int loggerWebAddNavLink(const char* label, const char* href, int root_relative);
 int loggerWebSetAccessPoller(int mode, LoggerWebAccessPoller poller, void* user);
+int loggerWebSetAuthToken(const char* token);
 int loggerWebInsertGraph(const char* title,
                          const char* x_column,
                          const char* y_column);

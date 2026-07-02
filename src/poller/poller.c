@@ -9,7 +9,8 @@
 #include "rec.h"
 #include "settings.h"
 
-static void logReadingEvent(const char* log_path,
+static void logSensorFailure(const AppConfig* config, const char* detail);
+static void logReadingEvent(const AppConfig* config,
                             const SensorReading* reading,
                             Rec rec,
                             const char* event,
@@ -22,14 +23,14 @@ int pollerLogCurrentReading(const AppConfig* config, const char* event, const ch
     if (!config || !houseReadSensor(config, &currentReading))
     {
         if (config) {
-            lprint(config->log_path, "-|-|-|-|-|sensor fail|web poll");
+            logSensorFailure(config, "web poll");
         }
         return 0;
     }
 
     // Web-triggered polls refresh Today data without running notification policy.
     Rec currentRec = getRec(currentReading.house, currentReading.outside_air, currentReading.speed);
-    logReadingEvent(config->log_path,
+    logReadingEvent(config,
                     &currentReading,
                     currentRec,
                     event ? event : "web poll",
@@ -49,14 +50,14 @@ void pollerRun(const AppConfig* config)
         // Trim periodically from the polling loop because this loop defines log cadence.
         if (difftime(currentNow, lastLogTrimTime) >= LOG_TRIM_INTERVAL_SECONDS)
         {
-            logTrim(config->log_path);
+            logger_trim(config->logger);
             lastLogTrimTime = currentNow;
         }
 
         // A failed sensor read is logged as a row-shaped event so the web log remains parseable.
         if (!houseReadSensor(config, &currentReading))
         {
-            lprint(config->log_path, "-|-|-|-|-|sensor fail|");
+            logSensorFailure(config, "");
             portableSleepSeconds(POLL_INTERVAL_SECONDS);
             continue;
         }
@@ -66,7 +67,7 @@ void pollerRun(const AppConfig* config)
         // Recommendations outside their allowed window are recorded but not queued.
         if (currentRec != REC_NONE && !withinWindow(currentRec, currentNow))
         {
-            logReadingEvent(config->log_path,
+            logReadingEvent(config,
                             &currentReading,
                             currentRec,
                             ignoredWindowEvent(currentRec),
@@ -84,36 +85,65 @@ void pollerRun(const AppConfig* config)
         // Keep the regular row format in one helper so future fields are added once.
         if (currentRec == REC_NONE)
         {
-            logReadingEvent(config->log_path, &currentReading, currentRec, "idle", "");
+            logReadingEvent(config, &currentReading, currentRec, "idle", "");
         }
         else if (notificationQueued)
         {
-            logReadingEvent(config->log_path, &currentReading, currentRec, "notify queued", "");
+            logReadingEvent(config, &currentReading, currentRec, "notify queued", "");
         }
         else
         {
-            logReadingEvent(config->log_path, &currentReading, currentRec, "recording", "");
+            logReadingEvent(config, &currentReading, currentRec, "recording", "");
         }
 
         portableSleepSeconds(POLL_INTERVAL_SECONDS);
     }
 }
 
-static void logReadingEvent(const char* log_path,
+static void logSensorFailure(const AppConfig* config, const char* detail)
+{
+    const char* fields[] = {
+        "-",
+        "-",
+        "-",
+        "-",
+        "-",
+        "sensor fail",
+        detail ? detail : ""
+    };
+    logger_log_fields(config ? config->logger : NULL,
+                      fields,
+                      sizeof(fields) / sizeof(fields[0]));
+}
+
+static void logReadingEvent(const AppConfig* config,
                             const SensorReading* reading,
                             Rec rec,
                             const char* event,
                             const char* detail)
 {
-    lprintf(log_path,
-            "%d|%d|%d|%d|%s|%s|%s",
-            reading->house,
-            reading->outside_air,
-            reading->attic,
-            reading->speed,
-            getRecName(rec),
-            event ? event : "",
-            detail ? detail : "");
+    char house[16];
+    char outside_air[16];
+    char attic[16];
+    char speed[16];
+
+    snprintf(house, sizeof(house), "%d", reading->house);
+    snprintf(outside_air, sizeof(outside_air), "%d", reading->outside_air);
+    snprintf(attic, sizeof(attic), "%d", reading->attic);
+    snprintf(speed, sizeof(speed), "%d", reading->speed);
+
+    const char* fields[] = {
+        house,
+        outside_air,
+        attic,
+        speed,
+        getRecName(rec),
+        event ? event : "",
+        detail ? detail : ""
+    };
+    logger_log_fields(config ? config->logger : NULL,
+                      fields,
+                      sizeof(fields) / sizeof(fields[0]));
 }
 
 static const char* ignoredWindowEvent(Rec rec)

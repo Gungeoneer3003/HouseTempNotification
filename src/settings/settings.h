@@ -72,6 +72,28 @@
 #define LOGGER_WEB_PORT 8080
 #endif
 
+//Bind address for the logger web viewer. Use "0.0.0.0" to expose it beyond localhost.
+//If this is not "0.0.0.0", then it's only accessable via localhost
+#ifndef LOGGER_WEB_BIND_ADDRESS
+#define LOGGER_WEB_BIND_ADDRESS "0.0.0.0"
+#endif
+
+//Optional token required for logger web requests when non-empty.
+//Basically a password
+#ifndef LOGGER_WEB_AUTH_TOKEN
+#define LOGGER_WEB_AUTH_TOKEN ""
+#endif
+
+//The log view keeps only the newest rows in memory while rendering.
+#ifndef LOGGER_WEB_DEFAULT_LOG_LIMIT
+#define LOGGER_WEB_DEFAULT_LOG_LIMIT 500
+#endif
+
+//Fan control POST routes are disabled unless explicitly enabled.
+#ifndef LOGGER_WEB_ENABLE_CONTROLS
+#define LOGGER_WEB_ENABLE_CONTROLS 1
+#endif
+
 //The default speed for the fan after being awoken from power off
 #ifndef DEF_FAN_SPEED
 #define DEF_FAN_SPEED 4

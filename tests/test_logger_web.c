@@ -56,10 +56,11 @@ int main(int argc, char** argv) {
     loggerWebSetRootDirectory("graphs");
 
 #ifdef _WIN32
-    Sleep(3000);
+    Sleep(300000);
 #else
     sleep(3);
 #endif
+    loggerWebStop();
 
     return EXIT_SUCCESS;
 }

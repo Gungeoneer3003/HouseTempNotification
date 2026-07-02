@@ -7,6 +7,17 @@
 #include "rec.h"
 #include "settings.h"
 
+static time_t localTimeAtHour(int hour) {
+    struct tm local;
+    memset(&local, 0, sizeof(local));
+    local.tm_year = 126;
+    local.tm_mon = 6;
+    local.tm_mday = 1;
+    local.tm_hour = hour;
+    local.tm_isdst = -1;
+    return mktime(&local);
+}
+
 static void testRecommendations(void) {
     assert(getRec(75, 75 - MARGIN, 0) == REC_OPEN);
     assert(getRec(75, 75 - MARGIN + 1, 0) == REC_NONE);
@@ -17,9 +28,10 @@ static void testRecommendations(void) {
     assert(strcmp(getRecName(REC_CLOSE), "close") == 0);
     assert(strcmp(getRecName(REC_NONE), "none") == 0);
 
-    time_t now = time(NULL);
-    assert(withinWindow(REC_OPEN, now));
-    assert(!withinWindow(REC_CLOSE, now));
+    assert(withinWindow(REC_OPEN, localTimeAtHour(ALLOW_OPEN_AFTER_HOUR)));
+    assert(!withinWindow(REC_OPEN, localTimeAtHour(ALLOW_OPEN_AFTER_HOUR - 1)));
+    assert(withinWindow(REC_CLOSE, localTimeAtHour(ALLOW_CLOSE_AFTER_HOUR)));
+    assert(!withinWindow(REC_CLOSE, localTimeAtHour(ALLOW_OPEN_AFTER_HOUR)));
 }
 
 static void testJsonParseInt(void) {

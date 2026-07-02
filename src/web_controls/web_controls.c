@@ -1,5 +1,7 @@
 #include "web_controls.h"
 
+#include <stdio.h>
+
 #include "houseApi.h"
 #include "logger.h"
 #include "rec.h"
@@ -35,7 +37,11 @@ void webControlsConfigureToday(const AppConfig* config)
     loggerWebShowToday(logger_web_today_columns,
                        sizeof(logger_web_today_columns) / sizeof(logger_web_today_columns[0]),
                        1,
-                       1);
+                       LOGGER_WEB_ENABLE_CONTROLS);
+
+    if (!LOGGER_WEB_ENABLE_CONTROLS) {
+        return;
+    }
 
     // Wire each web fan button to its matching house API endpoint.
     LoggerWebTodayControls logger_web_today_controls = {
@@ -134,13 +140,27 @@ static int loggerWebLogFanReading(const AppConfig* web_config, const char* detai
     Rec updated_rec = getRec(updated_reading.house,
                              updated_reading.outside_air,
                              updated_reading.speed);
-    return lprintf(web_config->log_path,
-                   "%d|%d|%d|%d|%s|web fan|%s",
-                   updated_reading.house,
-                   updated_reading.outside_air,
-                   updated_reading.attic,
-                   updated_reading.speed,
-                   getRecName(updated_rec),
-                   detail ? detail : "");
+    char house[16];
+    char outside_air[16];
+    char attic[16];
+    char speed[16];
+
+    snprintf(house, sizeof(house), "%d", updated_reading.house);
+    snprintf(outside_air, sizeof(outside_air), "%d", updated_reading.outside_air);
+    snprintf(attic, sizeof(attic), "%d", updated_reading.attic);
+    snprintf(speed, sizeof(speed), "%d", updated_reading.speed);
+
+    const char* fields[] = {
+        house,
+        outside_air,
+        attic,
+        speed,
+        getRecName(updated_rec),
+        "web fan",
+        detail ? detail : ""
+    };
+    return logger_log_fields(web_config->logger,
+                             fields,
+                             sizeof(fields) / sizeof(fields[0]));
 }
 #endif

@@ -8,6 +8,7 @@
 
 #ifndef _WIN32
 #define _POSIX_C_SOURCE 200809L
+#endif
 
 #include "loggerWeb.h"
 #include "loggerWebInternal.h"
@@ -73,7 +74,11 @@ int loggerWebLogLocaltime(const time_t* value, struct tm* out) {
         return 0;
     }
 
+#ifdef _WIN32
+    return localtime_s(out, value) == 0;
+#else
     return localtime_r(value, out) != NULL;
+#endif
 }
 
 //Format a Unix timestamp into a human-readable label 
@@ -141,5 +146,3 @@ void loggerWebFormatDuration(time_t seconds, char* buffer, size_t buffer_size) {
     }
 }
 
-
-#endif

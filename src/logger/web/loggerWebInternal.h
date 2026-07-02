@@ -6,11 +6,36 @@
 #ifndef LOGGER_WEB_INTERNAL_H
 #define LOGGER_WEB_INTERNAL_H
 
-#ifndef _WIN32
-
-#include <pthread.h>
 #include <stddef.h>
 #include <time.h>
+
+#include "logger.h"
+#include "portable_socket.h"
+
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+typedef SRWLOCK LoggerWebMutex;
+typedef HANDLE LoggerWebThread;
+#define LOGGER_WEB_MUTEX_INITIALIZER SRWLOCK_INIT
+static inline void loggerWebMutexLock(LoggerWebMutex* mutex) {
+    AcquireSRWLockExclusive(mutex);
+}
+static inline void loggerWebMutexUnlock(LoggerWebMutex* mutex) {
+    ReleaseSRWLockExclusive(mutex);
+}
+#else
+#include <pthread.h>
+typedef pthread_mutex_t LoggerWebMutex;
+typedef pthread_t LoggerWebThread;
+#define LOGGER_WEB_MUTEX_INITIALIZER PTHREAD_MUTEX_INITIALIZER
+static inline void loggerWebMutexLock(LoggerWebMutex* mutex) {
+    pthread_mutex_lock(mutex);
+}
+static inline void loggerWebMutexUnlock(LoggerWebMutex* mutex) {
+    pthread_mutex_unlock(mutex);
+}
+#endif
 
 #ifndef LOGGER_WEB_BACKLOG
 #define LOGGER_WEB_BACKLOG 8
@@ -18,6 +43,18 @@
 
 #ifndef LOGGER_WEB_MAX_LINE
 #define LOGGER_WEB_MAX_LINE 2048
+#endif
+
+#ifndef LOGGER_WEB_MAX_AUTH_TOKEN
+#define LOGGER_WEB_MAX_AUTH_TOKEN 128
+#endif
+
+#ifndef LOGGER_WEB_DEFAULT_LOG_LIMIT
+#define LOGGER_WEB_DEFAULT_LOG_LIMIT 500
+#endif
+
+#ifndef LOGGER_WEB_MAX_LOG_LIMIT
+#define LOGGER_WEB_MAX_LOG_LIMIT 5000
 #endif
 
 //Forward declarations for the logger web server structures
@@ -85,9 +122,15 @@ typedef struct {
 
 typedef struct {
     char log_path[512];
+    char bind_address[64];
+    char auth_token[LOGGER_WEB_MAX_AUTH_TOKEN];
     char root_directory[LOGGER_WEB_ROOT_DIRECTORY_SIZE];
     unsigned short port;
-    int server_fd;
+    PortableSocket server_socket;
+    LoggerWebThread thread;
+    int thread_started;
+    volatile int stop_requested;
+    size_t log_row_limit;
     char* title;
     char** column_headers;
     size_t column_header_count;
@@ -123,50 +166,62 @@ typedef enum {
 
 //Shared server state.
 extern LoggerWebServer* active_server;
-extern pthread_mutex_t active_server_mutex;
+extern LoggerWebMutex active_server_mutex;
 
 // Server lifecycle and routing.
-int loggerWebStartServer(LoggerWebServer* server, unsigned short port);
-void loggerWebHandleClient(int client_fd, const LoggerWebServer* server);
+int loggerWebStartServer(LoggerWebServer* server,
+                         const char* bind_address,
+                         unsigned short port);
+void loggerWebStopServer(LoggerWebServer* server);
+void loggerWebHandleClient(PortableSocket client_fd, const LoggerWebServer* server);
 int loggerWebRootDirectoryEquals(const LoggerWebServer* server, const char* subdirectory);
 
 // Response and escaping helpers.
 char* loggerWebCopyString(const char* value);
-void loggerWebSendHtmlHeader(int client_fd);
-void loggerWebSendNotFound(int client_fd);
-void loggerWebSendNoContent(int client_fd);
-void loggerWebSendPlainStatus(int client_fd,
+void loggerWebSendHtmlHeader(PortableSocket client_fd);
+void loggerWebSendNotFound(PortableSocket client_fd);
+void loggerWebSendUnauthorized(PortableSocket client_fd);
+void loggerWebSendNoContent(PortableSocket client_fd);
+void loggerWebSendPlainStatus(PortableSocket client_fd,
                               int status_code,
                               const char* reason,
                               const char* body);
-void loggerWebSendBytes(int fd, const char* data, size_t length);
-void loggerWebSendAll(int fd, const char* data);
-void loggerWebSendEscaped(int fd, const char* value);
-void loggerWebSendJsonEscaped(int fd, const char* value);
-void loggerWebSendStaticFile(int client_fd, const char* content_type, const char* path);
-void loggerWebSendCss(int client_fd);
-void loggerWebSendGraphScript(int client_fd);
-void loggerWebSendTodayScript(int client_fd);
+void loggerWebSendBytes(PortableSocket fd, const char* data, size_t length);
+void loggerWebSendAll(PortableSocket fd, const char* data);
+void loggerWebSendEscaped(PortableSocket fd, const char* value);
+void loggerWebSendJsonEscaped(PortableSocket fd, const char* value);
+void loggerWebSendStaticFile(PortableSocket client_fd,
+                             const char* content_type,
+                             const char* path);
+void loggerWebSendCss(PortableSocket client_fd);
+void loggerWebSendGraphScript(PortableSocket client_fd);
+void loggerWebSendTodayScript(PortableSocket client_fd);
 
 // HTML pages and templates.
-void loggerWebSendIndex(int client_fd, const LoggerWebServer* server, int is_root);
-void loggerWebSendGraphs(int client_fd, const LoggerWebServer* server, int is_root);
-void loggerWebSendRawLog(int client_fd, const LoggerWebServer* server, int is_root);
-void loggerWebSendTemplate(int client_fd,
+void loggerWebSendIndex(PortableSocket client_fd,
+                        const LoggerWebServer* server,
+                        int is_root,
+                        size_t log_limit);
+void loggerWebSendGraphs(PortableSocket client_fd, const LoggerWebServer* server, int is_root);
+void loggerWebSendRawLog(PortableSocket client_fd, const LoggerWebServer* server, int is_root);
+void loggerWebSendTemplate(PortableSocket client_fd,
                            const char* path,
                            const LoggerWebServer* server,
                            int show_today_panel,
-                           LoggerWebPage current_page);
-void loggerWebSendNav(int client_fd, const LoggerWebServer* server, LoggerWebPage current_page);
-void loggerWebSendTableHeaders(int client_fd, const LoggerWebServer* server);
+                           LoggerWebPage current_page,
+                           size_t log_limit);
+void loggerWebSendNav(PortableSocket client_fd,
+                      const LoggerWebServer* server,
+                      LoggerWebPage current_page);
+void loggerWebSendTableHeaders(PortableSocket client_fd, const LoggerWebServer* server);
 
 // Log rows and parsing helpers.
-void loggerWebSendLogRows(int client_fd, const LoggerWebServer* server);
-void loggerWebSendRawLogContent(int client_fd, const LoggerWebServer* server);
+void loggerWebSendLogRows(PortableSocket client_fd,
+                          const LoggerWebServer* server,
+                          size_t limit);
+void loggerWebSendRawLogContent(PortableSocket client_fd, const LoggerWebServer* server);
 size_t loggerWebTotalColumnCount(const LoggerWebServer* server);
-int loggerWebSplitFields(char* line, char** fields, size_t column_count);
-const char* loggerWebFieldForColumn(char** fields, size_t column_index);
-int loggerWebRowHasSplitDateTime(char** fields);
+const char* loggerWebFieldForColumn(const LogRecord* record, size_t column_index);
 int loggerWebParseDouble(const char* value, double* out);
 int loggerWebParseUnixTime(const char* value, time_t* out);
 int loggerWebLogLocaltime(const time_t* value, struct tm* out);
@@ -190,16 +245,14 @@ int loggerWebGraphRangeWindow(LoggerWebGraphRange range,
                               time_t* range_start,
                               time_t* range_end);
 int loggerWebGraphStatsWindow(time_t now, time_t* window_start, time_t* window_end);
-void loggerWebSendGraphData(int client_fd,
+void loggerWebSendGraphData(PortableSocket client_fd,
                             const LoggerWebServer* server,
                             LoggerWebGraphRange range);
 int loggerWebShouldShowTodayPanel(const LoggerWebServer* server, int is_root);
-void loggerWebSendTodayPanel(int client_fd, const LoggerWebServer* server);
-void loggerWebHandleTodayControl(int client_fd,
+void loggerWebSendTodayPanel(PortableSocket client_fd, const LoggerWebServer* server);
+void loggerWebHandleTodayControl(PortableSocket client_fd,
                                  const LoggerWebServer* server,
                                  const char* action);
-void loggerWebWriteTodayJson(int client_fd, const LoggerWebServer* server);
-
-#endif
+void loggerWebWriteTodayJson(PortableSocket client_fd, const LoggerWebServer* server);
 
 #endif

@@ -4,6 +4,7 @@
  */
 #ifndef _WIN32
 #define _POSIX_C_SOURCE 200809L
+#endif
 
 #include "../loggerWeb.h"
 #include "../loggerWebInternal.h"
@@ -48,17 +49,17 @@ int loggerWebInsertGraphSeries(const char* title,
     }
 
     //Lock the active server mutex to ensure thread safety
-    pthread_mutex_lock(&active_server_mutex);
+    loggerWebMutexLock(&active_server_mutex);
     LoggerWebServer* server = active_server;
     if (!server) {
-        pthread_mutex_unlock(&active_server_mutex);
+        loggerWebMutexUnlock(&active_server_mutex);
         return 0;
     }
 
     //Resolve the index of the x-axis column in the server's column headers
     size_t x_index = 0;
     if (!loggerWebResolveColumnIndex(server, x_column, &x_index)) {
-        pthread_mutex_unlock(&active_server_mutex);
+        loggerWebMutexUnlock(&active_server_mutex);
         return 0;
     }
 
@@ -73,7 +74,7 @@ int loggerWebInsertGraphSeries(const char* title,
 
     if (!graph.title || !graph.x_column || !graph.series) {
         freeGraph(&graph);
-        pthread_mutex_unlock(&active_server_mutex);
+        loggerWebMutexUnlock(&active_server_mutex);
         return 0;
     }
 
@@ -82,14 +83,14 @@ int loggerWebInsertGraphSeries(const char* title,
         if (!y_columns[i] || !*y_columns[i] ||
             !loggerWebResolveColumnIndex(server, y_columns[i], &graph.series[i].index)) {
             freeGraph(&graph);
-            pthread_mutex_unlock(&active_server_mutex);
+            loggerWebMutexUnlock(&active_server_mutex);
             return 0;
         }
 
         graph.series[i].name = loggerWebCopyString(y_columns[i]);
         if (!graph.series[i].name) {
             freeGraph(&graph);
-            pthread_mutex_unlock(&active_server_mutex);
+            loggerWebMutexUnlock(&active_server_mutex);
             return 0;
         }
     }
@@ -101,7 +102,7 @@ int loggerWebInsertGraphSeries(const char* title,
                                               next_capacity * sizeof(*server->graphs));
         if (!next_graphs) {
             freeGraph(&graph);
-            pthread_mutex_unlock(&active_server_mutex);
+            loggerWebMutexUnlock(&active_server_mutex);
             return 0;
         }
 
@@ -113,21 +114,21 @@ int loggerWebInsertGraphSeries(const char* title,
     server->graphs[server->graph_count] = graph;
     server->graph_count++;
 
-    pthread_mutex_unlock(&active_server_mutex);
+    loggerWebMutexUnlock(&active_server_mutex);
     return 1;
 }
 
 //Set whether to show statistics on the graphs page
 int loggerWebShowStats(int enabled) {
-    pthread_mutex_lock(&active_server_mutex);
+    loggerWebMutexLock(&active_server_mutex);
     LoggerWebServer* server = active_server;
     if (!server) {
-        pthread_mutex_unlock(&active_server_mutex);
+        loggerWebMutexUnlock(&active_server_mutex);
         return 0;
     }
 
     server->show_stats = enabled != 0;
-    pthread_mutex_unlock(&active_server_mutex);
+    loggerWebMutexUnlock(&active_server_mutex);
     return 1;
 }
 
@@ -142,10 +143,10 @@ int loggerWebShowVerts(const char* graph_title,
     }
 
     //Lock the active server mutex to ensure thread safety
-    pthread_mutex_lock(&active_server_mutex);
+    loggerWebMutexLock(&active_server_mutex);
     LoggerWebServer* server = active_server;
     if (!server) {
-        pthread_mutex_unlock(&active_server_mutex);
+        loggerWebMutexUnlock(&active_server_mutex);
         return 0;
     }
 
@@ -153,7 +154,7 @@ int loggerWebShowVerts(const char* graph_title,
     LoggerWebGraph* graph = findGraphByTitle(server, graph_title);
     size_t column_index = 0;
     if (!graph || !loggerWebResolveColumnIndex(server, column, &column_index)) {
-        pthread_mutex_unlock(&active_server_mutex);
+        loggerWebMutexUnlock(&active_server_mutex);
         return 0;
     }
 
@@ -164,7 +165,7 @@ int loggerWebShowVerts(const char* graph_title,
                              value,
                              color && *color ? color : "#ef4444");
 
-    pthread_mutex_unlock(&active_server_mutex);
+    loggerWebMutexUnlock(&active_server_mutex);
     return ok;
 }
 
@@ -181,10 +182,10 @@ int loggerWebShowSpan(const char* graph_title,
     }
 
     //Lock the active server mutex to ensure thread safety
-    pthread_mutex_lock(&active_server_mutex);
+    loggerWebMutexLock(&active_server_mutex);
     LoggerWebServer* server = active_server;
     if (!server) {
-        pthread_mutex_unlock(&active_server_mutex);
+        loggerWebMutexUnlock(&active_server_mutex);
         return 0;
     }
 
@@ -192,7 +193,7 @@ int loggerWebShowSpan(const char* graph_title,
     LoggerWebGraph* graph = findGraphByTitle(server, graph_title);
     size_t column_index = 0;
     if (!graph || !loggerWebResolveColumnIndex(server, column, &column_index)) {
-        pthread_mutex_unlock(&active_server_mutex);
+        loggerWebMutexUnlock(&active_server_mutex);
         return 0;
     }
 
@@ -204,7 +205,7 @@ int loggerWebShowSpan(const char* graph_title,
                              end_value,
                              color && *color ? color : "#f59e0b");
     
-    pthread_mutex_unlock(&active_server_mutex);
+    loggerWebMutexUnlock(&active_server_mutex);
     return ok;
 }
 
@@ -231,9 +232,9 @@ void loggerWebFreeGraphs(LoggerWebServer* server) {
 int loggerWebHasGraphs(const LoggerWebServer* server) {
     int has_graphs = 0;
 
-    pthread_mutex_lock(&active_server_mutex);
+    loggerWebMutexLock(&active_server_mutex);
     has_graphs = server && server->graph_count > 0;
-    pthread_mutex_unlock(&active_server_mutex);
+    loggerWebMutexUnlock(&active_server_mutex);
 
     return has_graphs;
 }
@@ -388,5 +389,3 @@ static int appendGraphSpan(LoggerWebGraph* graph,
     return 1;
 }
 
-
-#endif

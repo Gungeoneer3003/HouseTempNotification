@@ -38,6 +38,7 @@ void configInitDefaults(AppConfig* config) {
     config->slow_down_part = NULL;
     config->log_path = DEFAULT_LOG_FILE;
     config->lock_path = DEFAULT_LOCK_FILE;
+    config->logger = NULL;
     config->cgi_url[0] = '\0';
     config->shutoff_url[0] = '\0';
     config->speed_up_url[0] = '\0';

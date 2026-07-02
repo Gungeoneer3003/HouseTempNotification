@@ -6,6 +6,7 @@
 */
 #ifndef _WIN32
 #define _POSIX_C_SOURCE 200809L
+#endif
 
 #include "../loggerWeb.h"
 #include "../loggerWebInternal.h"
@@ -15,32 +16,32 @@
 #include <time.h>
 
 //Function prototypes for internal functions used in the logger web server
-static void writeGraphJson(int client_fd,
+static void writeGraphJson(PortableSocket client_fd,
                            const LoggerWebServer* server,
                            const LoggerWebGraph* graph,
                            time_t range_start,
                            time_t range_end);
-static void writeGraphPointsJson(int client_fd,
+static void writeGraphPointsJson(PortableSocket client_fd,
                                  const LoggerWebServer* server,
                                  const LoggerWebGraph* graph,
                                  time_t range_start,
                                  time_t range_end);
-static void writeGraphStatsJson(int client_fd,
+static void writeGraphStatsJson(PortableSocket client_fd,
                                 const LoggerWebServer* server,
                                 const LoggerWebGraph* graph);
-static void writeGraphEventsJson(int client_fd,
+static void writeGraphEventsJson(PortableSocket client_fd,
                                  const LoggerWebServer* server,
                                  const LoggerWebGraph* graph,
                                  time_t range_start,
                                  time_t range_end);
-static void writeGraphSpansJson(int client_fd,
+static void writeGraphSpansJson(PortableSocket client_fd,
                                 const LoggerWebServer* server,
                                 const LoggerWebGraph* graph,
                                 time_t range_start,
                                 time_t range_end);
 
 //Send the graph data in JSON format to the client for the specified range
-void loggerWebSendGraphData(int client_fd,
+void loggerWebSendGraphData(PortableSocket client_fd,
                             const LoggerWebServer* server,
                             LoggerWebGraphRange range) {
     
@@ -88,7 +89,7 @@ void loggerWebSendGraphData(int client_fd,
     loggerWebSendAll(client_fd, ",\"today\":");
 
     //Lock the active server mutex to ensure thread safety
-    pthread_mutex_lock(&active_server_mutex);
+    loggerWebMutexLock(&active_server_mutex);
 
     //Send the "today" data in JSON format to the client
     loggerWebWriteTodayJson(client_fd, server);
@@ -101,7 +102,7 @@ void loggerWebSendGraphData(int client_fd,
         writeGraphJson(client_fd, server, &server->graphs[i], range_start, range_end);
     }
 
-    pthread_mutex_unlock(&active_server_mutex);
+    loggerWebMutexUnlock(&active_server_mutex);
 
     loggerWebSendAll(client_fd, "]}");
 }
@@ -109,7 +110,7 @@ void loggerWebSendGraphData(int client_fd,
 //Write the graph data in JSON format for the specified graph and range
 //Send the graph title, x-axis column, series data, 
 //points, stats, events, and spans in JSON format to the client
-static void writeGraphJson(int client_fd,
+static void writeGraphJson(PortableSocket client_fd,
                            const LoggerWebServer* server,
                            const LoggerWebGraph* graph,
                            time_t range_start,
@@ -142,24 +143,19 @@ static void writeGraphJson(int client_fd,
 }
 
 //Write the graph points in JSON format for the specified graph and range
-static void writeGraphPointsJson(int client_fd,
+static void writeGraphPointsJson(PortableSocket client_fd,
                                  const LoggerWebServer* server,
                                  const LoggerWebGraph* graph,
                                  time_t range_start,
                                  time_t range_end) {
-    //Check the file and column count
-    size_t column_count = loggerWebTotalColumnCount(server);
     FILE* file = fopen(server->log_path, "r");
     if (!file) {
         return;
     }
 
-    //Allocate memory for the fields, values, and has_value arrays
-    char** fields = calloc(column_count, sizeof(*fields));
     double* values = calloc(graph->series_count, sizeof(*values));
     int* has_value = calloc(graph->series_count, sizeof(*has_value));
-    if (!fields || !values || !has_value) {
-        free(fields);
+    if (!values || !has_value) {
         free(values);
         free(has_value);
         fclose(file);
@@ -177,11 +173,11 @@ static void writeGraphPointsJson(int client_fd,
             *newline = '\0';
         }
 
-        //Split the line into fields and check it's within the specified range
-        loggerWebSplitFields(line, fields, column_count);
-        time_t logged_at = 0;
-        if (!loggerWebParseUnixTime(fields[0], &logged_at) ||
-            logged_at < range_start || logged_at > range_end) {
+        LogRecord record;
+        if (!logger_record_parse_line(line, &record) ||
+            !record.has_logged_at ||
+            record.logged_at < range_start ||
+            record.logged_at > range_end) {
             continue;
         }
 
@@ -191,9 +187,9 @@ static void writeGraphPointsJson(int client_fd,
         if (graph->x_index == LOGGER_WEB_UNIX_FIELD ||
             graph->x_index == LOGGER_WEB_DATE_FIELD ||
             graph->x_index == LOGGER_WEB_TIME_FIELD) {
-            loggerWebFormatUnixLabel(logged_at, x_text, sizeof(x_text));
+            loggerWebFormatUnixLabel(record.logged_at, x_text, sizeof(x_text));
         } else {
-            const char* field = loggerWebFieldForColumn(fields, graph->x_index);
+            const char* field = loggerWebFieldForColumn(&record, graph->x_index);
             if (!field || !*field) {
                 continue;
             }
@@ -208,7 +204,7 @@ static void writeGraphPointsJson(int client_fd,
             has_value[i] = 0;
             values[i] = 0.0;
 
-            const char* y_text = loggerWebFieldForColumn(fields, graph->series[i].index);
+            const char* y_text = loggerWebFieldForColumn(&record, graph->series[i].index);
             if (loggerWebParseDouble(y_text, &values[i])) {
                 has_value[i] = 1;
                 any_value = 1;
@@ -231,7 +227,7 @@ static void writeGraphPointsJson(int client_fd,
         loggerWebSendAll(client_fd, "\",\"time\":");
         
         char time_text[32];
-        snprintf(time_text, sizeof(time_text), "%lld", (long long)logged_at);
+        snprintf(time_text, sizeof(time_text), "%lld", (long long)record.logged_at);
         loggerWebSendAll(client_fd, time_text);
         loggerWebSendAll(client_fd, ",\"values\":[");
 
@@ -256,14 +252,13 @@ static void writeGraphPointsJson(int client_fd,
     }
 
     //Clean up allocated memory and close the file
-    free(fields);
     free(values);
     free(has_value);
     fclose(file);
 }
 
 //Write the graph statistics in JSON format for the specified graph
-static void writeGraphStatsJson(int client_fd,
+static void writeGraphStatsJson(PortableSocket client_fd,
                                 const LoggerWebServer* server,
                                 const LoggerWebGraph* graph) {
     //If the server is not configured to show statistics, send "null" and return                                
@@ -291,29 +286,25 @@ static void writeGraphStatsJson(int client_fd,
         return;
     }
 
-    //Read the log file and calculate the minimum and maximum values 
-    //for each series within the statistics window
-    size_t column_count = loggerWebTotalColumnCount(server);
     FILE* file = fopen(server->log_path, "r");
 
     //See if the file was opened successfully
     //Then use the contents
     if (file) {
-        char** fields = calloc(column_count, sizeof(*fields));
         char line[LOGGER_WEB_MAX_LINE];
         
-        //Read each line of the log file, split it into fields
-        //Check if it's within the statistics window
-        while (fields && fgets(line, sizeof(line), file)) {
+        //Read each line of the log file and check if it's within the statistics window.
+        while (fgets(line, sizeof(line), file)) {
             char* newline = strpbrk(line, "\r\n");
             if (newline) {
                 *newline = '\0';
             }
 
-            loggerWebSplitFields(line, fields, column_count);
-            time_t logged_at = 0;
-            if (!loggerWebParseUnixTime(fields[0], &logged_at) ||
-                logged_at < window_start || logged_at > window_end) {
+            LogRecord record;
+            if (!logger_record_parse_line(line, &record) ||
+                !record.has_logged_at ||
+                record.logged_at < window_start ||
+                record.logged_at > window_end) {
                 continue;
             }
 
@@ -321,7 +312,7 @@ static void writeGraphStatsJson(int client_fd,
             for (size_t i = 0; i < graph->series_count; i++) {
                 double value = 0.0;
                 if (!loggerWebParseDouble(
-                        loggerWebFieldForColumn(fields, graph->series[i].index),
+                        loggerWebFieldForColumn(&record, graph->series[i].index),
                         &value)) {
                     continue;
                 }
@@ -342,7 +333,6 @@ static void writeGraphStatsJson(int client_fd,
             }
         }
 
-        free(fields);
         fclose(file);
     }
 
@@ -400,7 +390,7 @@ static void writeGraphStatsJson(int client_fd,
 }
 
 //Write the graph events in JSON format for the specified graph and range
-static void writeGraphEventsJson(int client_fd,
+static void writeGraphEventsJson(PortableSocket client_fd,
                                  const LoggerWebServer* server,
                                  const LoggerWebGraph* graph,
                                  time_t range_start,
@@ -410,17 +400,8 @@ static void writeGraphEventsJson(int client_fd,
         return;
     }
 
-    //Check the file and column count
-    size_t column_count = loggerWebTotalColumnCount(server);
     FILE* file = fopen(server->log_path, "r");
     if (!file) {
-        return;
-    }
-
-    //Allocate memory for the fields array to hold the split fields
-    char** fields = calloc(column_count, sizeof(*fields));
-    if (!fields) {
-        fclose(file);
         return;
     }
 
@@ -433,21 +414,21 @@ static void writeGraphEventsJson(int client_fd,
             *newline = '\0';
         }
 
-        //Split the line into fields and check if it's within the range
-        loggerWebSplitFields(line, fields, column_count);
-        time_t logged_at = 0;
-        if (!loggerWebParseUnixTime(fields[0], &logged_at) ||
-            logged_at < range_start || logged_at > range_end) {
+        LogRecord record;
+        if (!logger_record_parse_line(line, &record) ||
+            !record.has_logged_at ||
+            record.logged_at < range_start ||
+            record.logged_at > range_end) {
             continue;
         }
 
         //Format the x-axis value based on the logged time
         char x_text[64];
-        loggerWebFormatUnixLabel(logged_at, x_text, sizeof(x_text));
+        loggerWebFormatUnixLabel(record.logged_at, x_text, sizeof(x_text));
 
         //For each event, check if the field matches and send it in JSON format
         for (size_t i = 0; i < graph->vert_count; i++) {
-            const char* field = loggerWebFieldForColumn(fields, graph->verts[i].column_index);
+            const char* field = loggerWebFieldForColumn(&record, graph->verts[i].column_index);
             if (!field || strcmp(field, graph->verts[i].value) != 0) {
                 continue;
             }
@@ -460,7 +441,7 @@ static void writeGraphEventsJson(int client_fd,
             loggerWebSendJsonEscaped(client_fd, x_text);
             loggerWebSendAll(client_fd, "\",\"time\":");
             char time_text[32];
-            snprintf(time_text, sizeof(time_text), "%lld", (long long)logged_at);
+            snprintf(time_text, sizeof(time_text), "%lld", (long long)record.logged_at);
             loggerWebSendAll(client_fd, time_text);
             loggerWebSendAll(client_fd, ",\"label\":\"");
             loggerWebSendJsonEscaped(client_fd, graph->verts[i].value);
@@ -471,12 +452,11 @@ static void writeGraphEventsJson(int client_fd,
         }
     }
 
-    free(fields);
     fclose(file);
 }
 
 //Write the graph spans in JSON format for the specified graph and range
-static void writeGraphSpansJson(int client_fd,
+static void writeGraphSpansJson(PortableSocket client_fd,
                                 const LoggerWebServer* server,
                                 const LoggerWebGraph* graph,
                                 time_t range_start,
@@ -486,8 +466,6 @@ static void writeGraphSpansJson(int client_fd,
         return;
     }
 
-    //Check the file and column count
-    size_t column_count = loggerWebTotalColumnCount(server);
     int wrote_span = 0;
 
     //Iterate through each span and extract the data points from the log file
@@ -496,13 +474,6 @@ static void writeGraphSpansJson(int client_fd,
         const LoggerWebSpan* span = &graph->spans[span_index];
         FILE* file = fopen(server->log_path, "r");
         if (!file) {
-            return;
-        }
-
-        //Allocate memory for the fields array to hold the split fields
-        char** fields = calloc(column_count, sizeof(*fields));
-        if (!fields) {
-            fclose(file);
             return;
         }
 
@@ -519,16 +490,16 @@ static void writeGraphSpansJson(int client_fd,
                 *newline = '\0';
             }
 
-            //Split the line into fields and check if it's within the range
-            loggerWebSplitFields(line, fields, column_count);
-            time_t logged_at = 0;
-            if (!loggerWebParseUnixTime(fields[0], &logged_at) ||
-                logged_at < range_start || logged_at > range_end) {
+            LogRecord record;
+            if (!logger_record_parse_line(line, &record) ||
+                !record.has_logged_at ||
+                record.logged_at < range_start ||
+                record.logged_at > range_end) {
                 continue;
             }
 
             //Get the field value for the current span's column index
-            const char* field = loggerWebFieldForColumn(fields, span->column_index);
+            const char* field = loggerWebFieldForColumn(&record, span->column_index);
             if (!field) {
                 continue;
             }
@@ -537,17 +508,19 @@ static void writeGraphSpansJson(int client_fd,
             if (strcmp(field, span->start_value) == 0) {
                 if (!has_start) {
                     has_start = 1;
-                    start_time = logged_at;
-                    loggerWebFormatUnixLabel(logged_at, start_x, sizeof(start_x));
+                    start_time = record.logged_at;
+                    loggerWebFormatUnixLabel(record.logged_at, start_x, sizeof(start_x));
                 }
                 continue;
             }
 
             //Check if the field matches the end value of the span 
             //and if a start has been logged
-            if (strcmp(field, span->end_value) == 0 && has_start && logged_at >= start_time) {
+            if (strcmp(field, span->end_value) == 0 &&
+                has_start &&
+                record.logged_at >= start_time) {
                 //Calculate the duration of the span in seconds and format it
-                time_t duration_seconds = logged_at - start_time;
+                time_t duration_seconds = record.logged_at - start_time;
                 char duration[64];
                 char seconds_text[64];
                 loggerWebFormatDuration(duration_seconds, duration, sizeof(duration));
@@ -565,11 +538,14 @@ static void writeGraphSpansJson(int client_fd,
                 loggerWebSendAll(client_fd, start_time_text);
                 loggerWebSendAll(client_fd, ",\"end\":\"");
                 char end_x[256];
-                loggerWebFormatUnixLabel(logged_at, end_x, sizeof(end_x));
+                loggerWebFormatUnixLabel(record.logged_at, end_x, sizeof(end_x));
                 loggerWebSendJsonEscaped(client_fd, end_x);
                 loggerWebSendAll(client_fd, "\",\"endTime\":");
                 char end_time_text[32];
-                snprintf(end_time_text, sizeof(end_time_text), "%lld", (long long)logged_at);
+                snprintf(end_time_text,
+                         sizeof(end_time_text),
+                         "%lld",
+                         (long long)record.logged_at);
                 loggerWebSendAll(client_fd, end_time_text);
                 loggerWebSendAll(client_fd, ",\"label\":\"");
                 loggerWebSendJsonEscaped(client_fd, duration);
@@ -588,10 +564,7 @@ static void writeGraphSpansJson(int client_fd,
             }
         }
 
-        free(fields);
         fclose(file);
     }
 }
 
-
-#endif

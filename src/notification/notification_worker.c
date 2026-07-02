@@ -18,6 +18,10 @@ typedef struct NotificationJob {
 static void* notificationThread(void* arg);
 static NotificationJob* popNotificationJob(void);
 static void sendNotification(const NotificationJob* job);
+static int logNotificationEvent(const NotificationJob* job,
+                                const char* event,
+                                const char* detail);
+static int logNotificationStatus(const char* event, const char* detail);
 static int queueContainsRecLocked(Rec rec);
 static void clearActiveNotification(Rec rec);
 
@@ -167,18 +171,12 @@ static void sendNotification(const NotificationJob* job)
     if (msgResult)
     {
         const char* notifEvent = job->rec == REC_CLOSE ? "close notif" : "open notif";
-        lprintf(notification_config->log_path,
-                "%d|%d|%d|%d|%s|%s|%s",
-                job->reading.house,
-                job->reading.outside_air,
-                job->reading.attic,
-                job->reading.speed,
-                getRecName(job->rec),
-                notifEvent,
-                msg);
+        logNotificationEvent(job, notifEvent, msg);
 
         long sleep_sec = secUntilWindow(job->rec, job->now);
-        lprintf(notification_config->log_path, "-|-|-|-|-|Sleeping|sleep(%u)", (unsigned int)sleep_sec);
+        char sleep_detail[64];
+        snprintf(sleep_detail, sizeof(sleep_detail), "sleep(%u)", (unsigned int)sleep_sec);
+        logNotificationStatus("Sleeping", sleep_detail);
         if (sleep_sec > 0)
         {
             portableSleepSeconds((unsigned int)sleep_sec);
@@ -186,16 +184,62 @@ static void sendNotification(const NotificationJob* job)
     }
     else
     {
-        lprintf(notification_config->log_path,
-                "%d|%d|%d|%d|%s|notify failed|",
-                job->reading.house,
-                job->reading.outside_air,
-                job->reading.attic,
-                job->reading.speed,
-                getRecName(job->rec));
+        logNotificationEvent(job, "notify failed", "");
     }
 
     clearActiveNotification(job->rec);
+}
+
+static int logNotificationEvent(const NotificationJob* job,
+                                const char* event,
+                                const char* detail)
+{
+    char house[16];
+    char outside_air[16];
+    char attic[16];
+    char speed[16];
+
+    if (!job || !notification_config) {
+        return 0;
+    }
+
+    snprintf(house, sizeof(house), "%d", job->reading.house);
+    snprintf(outside_air, sizeof(outside_air), "%d", job->reading.outside_air);
+    snprintf(attic, sizeof(attic), "%d", job->reading.attic);
+    snprintf(speed, sizeof(speed), "%d", job->reading.speed);
+
+    const char* fields[] = {
+        house,
+        outside_air,
+        attic,
+        speed,
+        getRecName(job->rec),
+        event ? event : "",
+        detail ? detail : ""
+    };
+    return logger_log_fields(notification_config->logger,
+                             fields,
+                             sizeof(fields) / sizeof(fields[0]));
+}
+
+static int logNotificationStatus(const char* event, const char* detail)
+{
+    if (!notification_config) {
+        return 0;
+    }
+
+    const char* fields[] = {
+        "-",
+        "-",
+        "-",
+        "-",
+        "-",
+        event ? event : "",
+        detail ? detail : ""
+    };
+    return logger_log_fields(notification_config->logger,
+                             fields,
+                             sizeof(fields) / sizeof(fields[0]));
 }
 
 static int queueContainsRecLocked(Rec rec)

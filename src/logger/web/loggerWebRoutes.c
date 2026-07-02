@@ -1,24 +1,41 @@
 //Statement of Purpose:
 /*
 The purpose of this file is to provide the implementation for
-handling web requests for the logger web interface. It includes functions to 
-parse incoming HTTP requests, determine the requested resource, and send the 
+handling web requests for the logger web interface. It includes functions to
+parse incoming HTTP requests, determine the requested resource, and send the
 appropriate response back to the client.
 */
 
 #ifndef _WIN32
 #define _POSIX_C_SOURCE 200809L
+#endif
 
 #include "loggerWeb.h"
 #include "loggerWebInternal.h"
+
+#include <stdlib.h>
 #include <string.h>
-#include <sys/socket.h>
-#include <sys/types.h>
 
-static void sendRoot(int client_fd, const LoggerWebServer* server);
+static void sendRoot(PortableSocket client_fd,
+                     const LoggerWebServer* server,
+                     size_t log_limit);
 static void pollForPageAccess(const LoggerWebServer* server, int is_root);
+static int parseRequest(const char* request,
+                        char* method,
+                        size_t method_size,
+                        char* path,
+                        size_t path_size);
+static int pathEquals(const char* path, const char* expected);
+static size_t parseLogLimit(const char* request, const LoggerWebServer* server);
+static int requestAuthorized(const char* request, const LoggerWebServer* server);
+static int queryParamEquals(const char* request, const char* key, const char* value);
+static int headerBearerEquals(const char* request, const char* token);
+static int headerTokenEquals(const char* request, const char* token);
+static int cookieTokenEquals(const char* request, const char* token);
+static int tokenValueEquals(const char* candidate,
+                            size_t candidate_length,
+                            const char* token);
 
-//Parse the HTTP method and path from the request line.
 static int parseRequest(const char* request,
                         char* method,
                         size_t method_size,
@@ -61,7 +78,6 @@ static int parseRequest(const char* request,
     return 1;
 }
 
-//Check if the given path matches the expected path, allowing for an optional trailing slash
 static int pathEquals(const char* path, const char* expected) {
     if (!path || !expected) {
         return 0;
@@ -81,15 +97,13 @@ static int pathEquals(const char* path, const char* expected) {
            path[expected_length + 1] == '\0';
 }
 
-//Handle an incoming client connection and respond to the HTTP request
-void loggerWebHandleClient(int client_fd, const LoggerWebServer* server) {
+void loggerWebHandleClient(PortableSocket client_fd, const LoggerWebServer* server) {
     char request[1024];
-    ssize_t bytes = recv(client_fd, request, sizeof(request) - 1, 0);
+    long bytes = portableSocketRecv(client_fd, request, sizeof(request) - 1);
     if (bytes <= 0) {
         return;
     }
 
-    //Null-terminate the request string so we can safely use string functions on it
     request[bytes] = '\0';
 
     char method[8];
@@ -99,7 +113,11 @@ void loggerWebHandleClient(int client_fd, const LoggerWebServer* server) {
         return;
     }
 
-    //Fan controls are state-changing actions, so keep them on POST-only routes.
+    if (!requestAuthorized(request, server)) {
+        loggerWebSendUnauthorized(client_fd);
+        return;
+    }
+
     if (strcmp(method, "POST") == 0) {
         if (pathEquals(path, "/today/fan/speed/up")) {
             loggerWebHandleTodayControl(client_fd, server, "speed-up");
@@ -118,13 +136,14 @@ void loggerWebHandleClient(int client_fd, const LoggerWebServer* server) {
         return;
     }
 
-    //Dispatch the parsed request path to the matching page or asset handler.
+    size_t log_limit = parseLogLimit(request, server);
+
     if (pathEquals(path, "/")) {
         pollForPageAccess(server, 1);
-        sendRoot(client_fd, server);
+        sendRoot(client_fd, server, log_limit);
     } else if (pathEquals(path, "/log")) {
         pollForPageAccess(server, 0);
-        loggerWebSendIndex(client_fd, server, 0);
+        loggerWebSendIndex(client_fd, server, 0, log_limit);
     } else if (pathEquals(path, "/graphs/data") ||
                (loggerWebRootDirectoryEquals(server, LOGGER_WEB_ROOT_GRAPHS) &&
                 pathEquals(path, "/data"))) {
@@ -149,14 +168,15 @@ void loggerWebHandleClient(int client_fd, const LoggerWebServer* server) {
     }
 }
 
-//Send the configured root page.
-static void sendRoot(int client_fd, const LoggerWebServer* server) {
+static void sendRoot(PortableSocket client_fd,
+                     const LoggerWebServer* server,
+                     size_t log_limit) {
     if (loggerWebRootDirectoryEquals(server, LOGGER_WEB_ROOT_GRAPHS)) {
         loggerWebSendGraphs(client_fd, server, 1);
         return;
     }
 
-    loggerWebSendIndex(client_fd, server, 1);
+    loggerWebSendIndex(client_fd, server, 1, log_limit);
 }
 
 static void pollForPageAccess(const LoggerWebServer* server, int is_root) {
@@ -164,14 +184,13 @@ static void pollForPageAccess(const LoggerWebServer* server, int is_root) {
     void* user = NULL;
     int mode = 0;
 
-    // Copy callback state under the lock, then poll without holding server state.
-    pthread_mutex_lock(&active_server_mutex);
+    loggerWebMutexLock(&active_server_mutex);
     if (server) {
         mode = server->access_poll_mode;
         poller = server->access_poller;
         user = server->access_poller_user;
     }
-    pthread_mutex_unlock(&active_server_mutex);
+    loggerWebMutexUnlock(&active_server_mutex);
 
     if (!poller || mode == 0 || (mode == 1 && !is_root)) {
         return;
@@ -180,5 +199,161 @@ static void pollForPageAccess(const LoggerWebServer* server, int is_root) {
     (void)poller(user);
 }
 
+static size_t parseLogLimit(const char* request, const LoggerWebServer* server) {
+    size_t default_limit = server && server->log_row_limit
+        ? server->log_row_limit
+        : LOGGER_WEB_DEFAULT_LOG_LIMIT;
 
-#endif
+    const char* query = request ? strchr(request, '?') : NULL;
+    if (!query) {
+        return default_limit;
+    }
+
+    const char* query_end = strchr(query, ' ');
+    if (!query_end) {
+        query_end = query + strlen(query);
+    }
+
+    const char prefix[] = "limit=";
+    const size_t prefix_length = sizeof(prefix) - 1;
+    const char* cursor = query + 1;
+
+    while (cursor < query_end) {
+        const char* param_end = cursor;
+        while (param_end < query_end && *param_end != '&') {
+            param_end++;
+        }
+
+        size_t param_length = (size_t)(param_end - cursor);
+        if (param_length > prefix_length &&
+            strncmp(cursor, prefix, prefix_length) == 0) {
+            char value[32];
+            size_t value_length = param_length - prefix_length;
+            if (value_length >= sizeof(value)) {
+                return default_limit;
+            }
+            memcpy(value, cursor + prefix_length, value_length);
+            value[value_length] = '\0';
+
+            unsigned long parsed = strtoul(value, NULL, 10);
+            if (parsed == 0) {
+                return default_limit;
+            }
+            if (parsed > LOGGER_WEB_MAX_LOG_LIMIT) {
+                return LOGGER_WEB_MAX_LOG_LIMIT;
+            }
+            return (size_t)parsed;
+        }
+
+        cursor = param_end;
+        if (cursor < query_end && *cursor == '&') {
+            cursor++;
+        }
+    }
+
+    return default_limit;
+}
+
+static int requestAuthorized(const char* request, const LoggerWebServer* server) {
+    if (!server || !server->auth_token[0]) {
+        return 1;
+    }
+
+    return queryParamEquals(request, "token", server->auth_token) ||
+           headerBearerEquals(request, server->auth_token) ||
+           headerTokenEquals(request, server->auth_token) ||
+           cookieTokenEquals(request, server->auth_token);
+}
+
+static int queryParamEquals(const char* request, const char* key, const char* value) {
+    const char* query = request ? strchr(request, '?') : NULL;
+    if (!query || !key || !value) {
+        return 0;
+    }
+
+    const char* query_end = strchr(query, ' ');
+    if (!query_end) {
+        query_end = query + strlen(query);
+    }
+
+    size_t key_length = strlen(key);
+    const char* cursor = query + 1;
+    while (cursor < query_end) {
+        const char* param_end = cursor;
+        while (param_end < query_end && *param_end != '&') {
+            param_end++;
+        }
+
+        if ((size_t)(param_end - cursor) > key_length + 1 &&
+            strncmp(cursor, key, key_length) == 0 &&
+            cursor[key_length] == '=') {
+            const char* token = cursor + key_length + 1;
+            return tokenValueEquals(token, (size_t)(param_end - token), value);
+        }
+
+        cursor = param_end;
+        if (cursor < query_end && *cursor == '&') {
+            cursor++;
+        }
+    }
+
+    return 0;
+}
+
+static int headerBearerEquals(const char* request, const char* token) {
+    const char* header = strstr(request ? request : "", "\r\nAuthorization: Bearer ");
+    if (!header) {
+        return 0;
+    }
+
+    const char* value = header + strlen("\r\nAuthorization: Bearer ");
+    const char* end = strstr(value, "\r\n");
+    if (!end) {
+        return 0;
+    }
+
+    return tokenValueEquals(value, (size_t)(end - value), token);
+}
+
+static int headerTokenEquals(const char* request, const char* token) {
+    const char* header = strstr(request ? request : "", "\r\nX-Logger-Token: ");
+    if (!header) {
+        return 0;
+    }
+
+    const char* value = header + strlen("\r\nX-Logger-Token: ");
+    const char* end = strstr(value, "\r\n");
+    if (!end) {
+        return 0;
+    }
+
+    return tokenValueEquals(value, (size_t)(end - value), token);
+}
+
+static int cookieTokenEquals(const char* request, const char* token) {
+    const char* header = strstr(request ? request : "", "\r\nCookie: ");
+    if (!header) {
+        return 0;
+    }
+
+    const char* cookie = strstr(header, "logger_web_token=");
+    if (!cookie) {
+        return 0;
+    }
+
+    const char* value = cookie + strlen("logger_web_token=");
+    const char* end = value;
+    while (*end && *end != ';' && *end != '\r' && *end != '\n') {
+        end++;
+    }
+
+    return tokenValueEquals(value, (size_t)(end - value), token);
+}
+
+static int tokenValueEquals(const char* candidate,
+                            size_t candidate_length,
+                            const char* token) {
+    return token &&
+           strlen(token) == candidate_length &&
+           strncmp(candidate, token, candidate_length) == 0;
+}

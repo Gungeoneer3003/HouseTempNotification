@@ -7,25 +7,23 @@ served to clients when requested.
 
 #ifndef _WIN32
 #define _POSIX_C_SOURCE 200809L
+#endif
 
 #include "loggerWeb.h"
 #include "loggerWebInternal.h"
 
-void loggerWebSendCss(int client_fd) {
+void loggerWebSendCss(PortableSocket client_fd) {
     loggerWebSendStaticFile(client_fd, "text/css; charset=utf-8", LOGGER_WEB_CSS_FILE);
 }
 
-void loggerWebSendGraphScript(int client_fd) {
+void loggerWebSendGraphScript(PortableSocket client_fd) {
     loggerWebSendStaticFile(client_fd,
                    "application/javascript; charset=utf-8",
                    LOGGER_WEB_GRAPH_SCRIPT_FILE);
 }
 
-void loggerWebSendTodayScript(int client_fd) {
+void loggerWebSendTodayScript(PortableSocket client_fd) {
     loggerWebSendStaticFile(client_fd,
                    "application/javascript; charset=utf-8",
                    LOGGER_WEB_TODAY_SCRIPT_FILE);
 }
-
-
-#endif

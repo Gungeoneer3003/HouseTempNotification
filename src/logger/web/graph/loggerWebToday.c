@@ -1,5 +1,6 @@
 #ifndef _WIN32
 #define _POSIX_C_SOURCE 200809L
+#endif
 
 #include "../loggerWeb.h"
 #include "../loggerWebInternal.h"
@@ -23,21 +24,21 @@ typedef struct {
 
 static void freeTodayColumns(LoggerWebTodayColumn* columns, size_t column_count);
 static int readTodaySnapshot(const LoggerWebServer* server, LoggerWebTodaySnapshot* snapshot);
-static void sendTodayReadings(int client_fd,
+static void sendTodayReadings(PortableSocket client_fd,
                               const LoggerWebTodaySnapshot* snapshot,
                               size_t column_count);
-static void sendTodayControls(int client_fd,
+static void sendTodayControls(PortableSocket client_fd,
                               const LoggerWebTodaySnapshot* snapshot,
                               const LoggerWebTodayControls* controls);
-static void sendTodayActionButton(int client_fd,
+static void sendTodayActionButton(PortableSocket client_fd,
                                   const char* class_name,
                                   const char* endpoint,
                                   const char* label,
                                   int enabled,
                                   const char* icon_class);
-static void sendTodayValue(int client_fd, double value, int integer_value);
+static void sendTodayValue(PortableSocket client_fd, double value, int integer_value);
 static int isFanSpeedColumn(const char* name);
-static void writeTodayControlsJson(int client_fd,
+static void writeTodayControlsJson(PortableSocket client_fd,
                                    const LoggerWebServer* server,
                                    const LoggerWebTodaySnapshot* snapshot);
 
@@ -49,10 +50,10 @@ int loggerWebShowToday(const char* const* columns,
         return 0;
     }
 
-    pthread_mutex_lock(&active_server_mutex);
+    loggerWebMutexLock(&active_server_mutex);
     LoggerWebServer* server = active_server;
     if (!server) {
-        pthread_mutex_unlock(&active_server_mutex);
+        loggerWebMutexUnlock(&active_server_mutex);
         return 0;
     }
 
@@ -60,7 +61,7 @@ int loggerWebShowToday(const char* const* columns,
     if (column_count > 0) {
         next_columns = calloc(column_count, sizeof(*next_columns));
         if (!next_columns) {
-            pthread_mutex_unlock(&active_server_mutex);
+            loggerWebMutexUnlock(&active_server_mutex);
             return 0;
         }
 
@@ -68,14 +69,14 @@ int loggerWebShowToday(const char* const* columns,
             if (!columns[i] || !*columns[i] ||
                 !loggerWebResolveColumnIndex(server, columns[i], &next_columns[i].index)) {
                 freeTodayColumns(next_columns, i);
-                pthread_mutex_unlock(&active_server_mutex);
+                loggerWebMutexUnlock(&active_server_mutex);
                 return 0;
             }
 
             next_columns[i].name = loggerWebCopyString(columns[i]);
             if (!next_columns[i].name) {
                 freeTodayColumns(next_columns, i);
-                pthread_mutex_unlock(&active_server_mutex);
+                loggerWebMutexUnlock(&active_server_mutex);
                 return 0;
             }
         }
@@ -86,15 +87,15 @@ int loggerWebShowToday(const char* const* columns,
     server->today_column_count = column_count;
     server->show_today_on_other_pages = show_on_other_pages != 0;
     server->show_today_controls = show_controls != 0;
-    pthread_mutex_unlock(&active_server_mutex);
+    loggerWebMutexUnlock(&active_server_mutex);
     return 1;
 }
 
 int loggerWebSetTodayControls(const LoggerWebTodayControls* controls) {
-    pthread_mutex_lock(&active_server_mutex);
+    loggerWebMutexLock(&active_server_mutex);
     LoggerWebServer* server = active_server;
     if (!server) {
-        pthread_mutex_unlock(&active_server_mutex);
+        loggerWebMutexUnlock(&active_server_mutex);
         return 0;
     }
 
@@ -105,7 +106,7 @@ int loggerWebSetTodayControls(const LoggerWebTodayControls* controls) {
         memset(&server->today_controls, 0, sizeof(server->today_controls));
     }
 
-    pthread_mutex_unlock(&active_server_mutex);
+    loggerWebMutexUnlock(&active_server_mutex);
     return 1;
 }
 
@@ -123,25 +124,25 @@ void loggerWebFreeTodayColumns(LoggerWebServer* server) {
 int loggerWebShouldShowTodayPanel(const LoggerWebServer* server, int is_root) {
     int should_show = 0;
 
-    pthread_mutex_lock(&active_server_mutex);
+    loggerWebMutexLock(&active_server_mutex);
     should_show = server &&
                   server->today_column_count > 0 &&
                   (is_root || server->show_today_on_other_pages);
-    pthread_mutex_unlock(&active_server_mutex);
+    loggerWebMutexUnlock(&active_server_mutex);
 
     return should_show;
 }
 
-void loggerWebSendTodayPanel(int client_fd, const LoggerWebServer* server) {
+void loggerWebSendTodayPanel(PortableSocket client_fd, const LoggerWebServer* server) {
     if (!server) {
         return;
     }
 
-    pthread_mutex_lock(&active_server_mutex);
+    loggerWebMutexLock(&active_server_mutex);
     LoggerWebTodaySnapshot snapshot;
     if (!readTodaySnapshot(server, &snapshot)) {
         loggerWebSendAll(client_fd, "<section id=\"today\" class=\"today-panel is-hidden\"></section>");
-        pthread_mutex_unlock(&active_server_mutex);
+        loggerWebMutexUnlock(&active_server_mutex);
         return;
     }
 
@@ -156,7 +157,7 @@ void loggerWebSendTodayPanel(int client_fd, const LoggerWebServer* server) {
         sendTodayReadings(client_fd, &snapshot, server->today_column_count);
     }
     loggerWebSendAll(client_fd, "</section>");
-    pthread_mutex_unlock(&active_server_mutex);
+    loggerWebMutexUnlock(&active_server_mutex);
 }
 
 static void freeTodayColumns(LoggerWebTodayColumn* columns, size_t column_count) {
@@ -191,22 +192,22 @@ static int readTodaySnapshot(const LoggerWebServer* server, LoggerWebTodaySnapsh
                  server->today_columns[i].name ? server->today_columns[i].name : "");
     }
 
-    size_t column_count = loggerWebTotalColumnCount(server);
     size_t fan_speed_index = 0;
     int has_fan_speed_column = loggerWebResolveColumnIndex(server, "Fan Speed", &fan_speed_index);
     FILE* file = fopen(server->log_path, "r");
     if (file) {
-        char** fields = calloc(column_count, sizeof(*fields));
         char line[LOGGER_WEB_MAX_LINE];
-        while (fields && fgets(line, sizeof(line), file)) {
+        while (fgets(line, sizeof(line), file)) {
             char* newline = strpbrk(line, "\r\n");
             if (newline) {
                 *newline = '\0';
             }
 
-            loggerWebSplitFields(line, fields, column_count);
-            time_t logged_at = 0;
-            int has_logged_at = loggerWebParseUnixTime(fields[LOGGER_WEB_UNIX_FIELD], &logged_at);
+            LogRecord record;
+            if (!logger_record_parse_line(line, &record)) {
+                continue;
+            }
+
             int any_value = 0;
             double row_values[LOGGER_WEB_TODAY_MAX_COLUMNS] = {0};
             int row_has_value[LOGGER_WEB_TODAY_MAX_COLUMNS] = {0};
@@ -215,7 +216,7 @@ static int readTodaySnapshot(const LoggerWebServer* server, LoggerWebTodaySnapsh
 
             for (size_t i = 0; i < server->today_column_count; i++) {
                 const char* field = loggerWebFieldForColumn(
-                    fields,
+                    &record,
                     server->today_columns[i].index);
                 if (loggerWebParseDouble(field, &row_values[i])) {
                     row_has_value[i] = 1;
@@ -224,7 +225,7 @@ static int readTodaySnapshot(const LoggerWebServer* server, LoggerWebTodaySnapsh
             }
 
             if (has_fan_speed_column &&
-                loggerWebParseDouble(loggerWebFieldForColumn(fields, fan_speed_index),
+                loggerWebParseDouble(loggerWebFieldForColumn(&record, fan_speed_index),
                                      &row_fan_speed)) {
                 row_has_fan_speed = 1;
             }
@@ -248,31 +249,20 @@ static int readTodaySnapshot(const LoggerWebServer* server, LoggerWebTodaySnapsh
                 snapshot->has_fan_power = 1;
             }
 
-            if (has_logged_at) {
-                loggerWebFormatUnixTime(logged_at,
+            if (record.has_logged_at) {
+                loggerWebFormatUnixTime(record.logged_at,
                                         snapshot->latest_time,
                                         sizeof(snapshot->latest_time));
-            } else if (loggerWebRowHasSplitDateTime(fields)) {
-                snprintf(snapshot->latest_time,
-                         sizeof(snapshot->latest_time),
-                         "%s",
-                         fields[LOGGER_WEB_TIME_FIELD]);
-            } else {
-                snprintf(snapshot->latest_time,
-                         sizeof(snapshot->latest_time),
-                         "%s",
-                         fields[LOGGER_WEB_DATE_FIELD] ? fields[LOGGER_WEB_DATE_FIELD] : "");
             }
         }
 
-        free(fields);
         fclose(file);
     }
 
     return 1;
 }
 
-static void sendTodayReadings(int client_fd,
+static void sendTodayReadings(PortableSocket client_fd,
                               const LoggerWebTodaySnapshot* snapshot,
                               size_t column_count) {
     loggerWebSendAll(client_fd, "<div class=\"today-heading\">Current readings</div>");
@@ -296,7 +286,7 @@ static void sendTodayReadings(int client_fd,
     }
 }
 
-static void sendTodayControls(int client_fd,
+static void sendTodayControls(PortableSocket client_fd,
                               const LoggerWebTodaySnapshot* snapshot,
                               const LoggerWebTodayControls* controls) {
     int can_speed_up = controls && controls->speed_up != NULL;
@@ -337,7 +327,7 @@ static void sendTodayControls(int client_fd,
     loggerWebSendAll(client_fd, "</div>");
 }
 
-static void sendTodayActionButton(int client_fd,
+static void sendTodayActionButton(PortableSocket client_fd,
                                   const char* class_name,
                                   const char* endpoint,
                                   const char* label,
@@ -358,7 +348,7 @@ static void sendTodayActionButton(int client_fd,
     loggerWebSendAll(client_fd, "\" aria-hidden=\"true\"></span></button>");
 }
 
-static void sendTodayValue(int client_fd, double value, int integer_value) {
+static void sendTodayValue(PortableSocket client_fd, double value, int integer_value) {
     char number[64];
     double absolute_value = value < 0.0 ? -value : value;
     snprintf(number,
@@ -372,7 +362,7 @@ static int isFanSpeedColumn(const char* name) {
     return loggerWebStringEqualsIgnoreCase(name, "Fan Speed");
 }
 
-void loggerWebHandleTodayControl(int client_fd,
+void loggerWebHandleTodayControl(PortableSocket client_fd,
                                  const LoggerWebServer* server,
                                  const char* action) {
     LoggerWebTodayControls controls;
@@ -380,12 +370,12 @@ void loggerWebHandleTodayControl(int client_fd,
     int show_controls = 0;
 
     //Copy the callback pointers under the lock, then run callbacks without holding it.
-    pthread_mutex_lock(&active_server_mutex);
+    loggerWebMutexLock(&active_server_mutex);
     if (server && server->show_today_controls) {
         controls = server->today_controls;
         show_controls = 1;
     }
-    pthread_mutex_unlock(&active_server_mutex);
+    loggerWebMutexUnlock(&active_server_mutex);
 
     int (*handler)(void*) = NULL;
     if (show_controls && action) {
@@ -417,7 +407,7 @@ void loggerWebHandleTodayControl(int client_fd,
     loggerWebSendNoContent(client_fd);
 }
 
-void loggerWebWriteTodayJson(int client_fd, const LoggerWebServer* server) {
+void loggerWebWriteTodayJson(PortableSocket client_fd, const LoggerWebServer* server) {
     LoggerWebTodaySnapshot snapshot;
     if (!readTodaySnapshot(server, &snapshot)) {
         loggerWebSendAll(client_fd, "null");
@@ -449,7 +439,7 @@ void loggerWebWriteTodayJson(int client_fd, const LoggerWebServer* server) {
     loggerWebSendAll(client_fd, "}");
 }
 
-static void writeTodayControlsJson(int client_fd,
+static void writeTodayControlsJson(PortableSocket client_fd,
                                    const LoggerWebServer* server,
                                    const LoggerWebTodaySnapshot* snapshot) {
     if (!server->show_today_controls) {
@@ -481,6 +471,3 @@ static void writeTodayControlsJson(int client_fd,
     loggerWebSendAll(client_fd, server->today_controls.power_toggle ? "true" : "false");
     loggerWebSendAll(client_fd, "}");
 }
-
-
-#endif

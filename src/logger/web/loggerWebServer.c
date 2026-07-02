@@ -1,99 +1,139 @@
 //Statement of Purpose:
 /*
-The purpose of this file is to provide the implementation for starting 
-and running the logger web server. It includes functions to create the 
-server socket, bind it to a port, and start listening 
-for incoming connections.
+The purpose of this file is to provide the implementation for starting
+and running the logger web server. Socket details live behind the portable
+socket layer so the same server lifecycle works on POSIX and Windows.
 */
 
 #ifndef _WIN32
 #define _POSIX_C_SOURCE 200809L
+#endif
 
 #include "loggerWeb.h"
 #include "loggerWebInternal.h"
-#include <arpa/inet.h>
-#include <errno.h>
-#include <netinet/in.h>
-#include <pthread.h>
+
+#include <stdint.h>
 #include <stdio.h>
-#include <string.h>
-#include <sys/socket.h>
-#include <sys/types.h>
-#include <unistd.h>
 
+#ifdef _WIN32
+#include <process.h>
+static unsigned __stdcall serverLoop(void* arg);
+#else
 static void* serverLoop(void* arg);
+#endif
 
-//Start the logger web server on the specified port
-int loggerWebStartServer(LoggerWebServer* server, unsigned short port) {
+int loggerWebStartServer(LoggerWebServer* server,
+                         const char* bind_address,
+                         unsigned short port) {
     if (!server || port == 0) {
         return 0;
     }
 
-    //Set the port and create the server socket
+    if (!portableSocketStartup()) {
+        fprintf(stderr, "Failed to initialize logger web sockets: %s\n",
+                portableSocketLastError());
+        return 0;
+    }
+
     server->port = port;
-    server->server_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (server->server_fd < 0) {
-        fprintf(stderr, "Failed to create logger web socket: %s\n", strerror(errno));
+    server->server_socket = portableSocketCreateTcp();
+    if (!portableSocketIsValid(server->server_socket)) {
+        fprintf(stderr, "Failed to create logger web socket: %s\n",
+                portableSocketLastError());
+        portableSocketCleanup();
         return 0;
     }
 
-    //Allow the socket to be reused
-    //This is for if the server is restarted quickly, to avoid "address already in use" errors
-    int reuse = 1;
-    setsockopt(server->server_fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+    portableSocketSetReuseAddr(server->server_socket);
 
-    //Bind the socket to the specified port on all interfaces
-    struct sockaddr_in addr;
-    memset(&addr, 0, sizeof(addr));
-    addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    addr.sin_port = htons(port);
-
-    //Bind the socket and check for errors
-    if (bind(server->server_fd, (struct sockaddr*)&addr, sizeof(addr)) != 0) {
-        fprintf(stderr, "Failed to bind logger web viewer on port %u: %s\n",
-                (unsigned)port, strerror(errno));
-        close(server->server_fd);
+    if (!portableSocketBind(server->server_socket, bind_address, port)) {
+        fprintf(stderr,
+                "Failed to bind logger web viewer on %s:%u: %s\n",
+                bind_address ? bind_address : "0.0.0.0",
+                (unsigned)port,
+                portableSocketLastError());
+        portableSocketClose(&server->server_socket);
+        portableSocketCleanup();
         return 0;
     }
 
-    //Start listening for incoming connections
-    if (listen(server->server_fd, LOGGER_WEB_BACKLOG) != 0) {
-        fprintf(stderr, "Failed to listen for logger web viewer: %s\n", strerror(errno));
-        close(server->server_fd);
+    if (!portableSocketListen(server->server_socket, LOGGER_WEB_BACKLOG)) {
+        fprintf(stderr, "Failed to listen for logger web viewer: %s\n",
+                portableSocketLastError());
+        portableSocketClose(&server->server_socket);
+        portableSocketCleanup();
         return 0;
     }
 
-    //Start the server loop in a detached thread
-    pthread_t thread;
-    if (pthread_create(&thread, NULL, serverLoop, server) != 0) {
+#ifdef _WIN32
+    uintptr_t thread = _beginthreadex(NULL, 0, serverLoop, server, 0, NULL);
+    if (thread == 0) {
         fprintf(stderr, "Failed to start logger web viewer thread\n");
-        close(server->server_fd);
+        portableSocketClose(&server->server_socket);
+        portableSocketCleanup();
         return 0;
     }
 
-    //Detach the thread so it cleans up after itself when it exits
-    pthread_detach(thread);
+    server->thread = (HANDLE)thread;
+#else
+    if (pthread_create(&server->thread, NULL, serverLoop, server) != 0) {
+        fprintf(stderr, "Failed to start logger web viewer thread\n");
+        portableSocketClose(&server->server_socket);
+        portableSocketCleanup();
+        return 0;
+    }
+#endif
+
+    server->thread_started = 1;
     return 1;
 }
 
-//Server loop that accepts incoming connections and handles them
-static void* serverLoop(void* arg) {
+void loggerWebStopServer(LoggerWebServer* server) {
+    if (!server) {
+        return;
+    }
+
+    server->stop_requested = 1;
+    portableSocketClose(&server->server_socket);
+
+    if (server->thread_started) {
+#ifdef _WIN32
+        WaitForSingleObject(server->thread, INFINITE);
+        CloseHandle(server->thread);
+        server->thread = NULL;
+#else
+        pthread_join(server->thread, NULL);
+#endif
+        server->thread_started = 0;
+    }
+
+    portableSocketCleanup();
+}
+
+#ifdef _WIN32
+static unsigned __stdcall serverLoop(void* arg)
+#else
+static void* serverLoop(void* arg)
+#endif
+{
     LoggerWebServer* server = (LoggerWebServer*)arg;
 
-    //Accept incoming connections in an endless loop
-    for (;;) {
-        int client_fd = accept(server->server_fd, NULL, NULL);
-        if (client_fd < 0) {
+    while (server && !server->stop_requested) {
+        PortableSocket client_fd = portableSocketAccept(server->server_socket);
+        if (!portableSocketIsValid(client_fd)) {
+            if (server->stop_requested) {
+                break;
+            }
             continue;
         }
 
         loggerWebHandleClient(client_fd, server);
-        close(client_fd);
+        portableSocketClose(&client_fd);
     }
 
+#ifdef _WIN32
+    return 0;
+#else
     return NULL;
-}
-
-
 #endif
+}

@@ -31,3 +31,10 @@ without sending a notification. Run `make notify-test` to compile it and send a
 Pushover test notification using `keys.env`. The test message can be overridden
 by setting `TEST_NOTIFICATION_MESSAGE` in the remote environment before running
 `./test_notification`.
+
+CMake is available for local focused builds and CI while the Makefile remains
+the deployment path. For the portable tests, run `cmake -S . -B build
+-DBUILD_HOUSE_APP=OFF`, then `cmake --build build` and `ctest --test-dir build`.
+The logger web server defaults to `127.0.0.1`, renders the newest 500 log rows
+unless `?limit=` is provided, and keeps fan controls disabled unless
+`LOGGER_WEB_ENABLE_CONTROLS` is set nonzero at compile time.

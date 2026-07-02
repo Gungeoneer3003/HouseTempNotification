@@ -1,5 +1,6 @@
 #ifndef _WIN32
 #define _POSIX_C_SOURCE 200809L
+#endif
 
 #include "loggerWeb.h"
 #include "loggerWebInternal.h"
@@ -8,18 +9,19 @@
 #include <stdio.h>
 #include <string.h>
 
-static void sendTemplateLine(int client_fd,
+static void sendTemplateLine(PortableSocket client_fd,
                              const char* line,
                              const LoggerWebServer* server,
                              int show_today_panel,
-                             LoggerWebPage current_page);
-static void sendGraphDataPath(int client_fd, const LoggerWebServer* server);
-static void sendNavButton(int client_fd,
+                             LoggerWebPage current_page,
+                             size_t log_limit);
+static void sendGraphDataPath(PortableSocket client_fd, const LoggerWebServer* server);
+static void sendNavButton(PortableSocket client_fd,
                           const char* href,
                           const char* label,
                           const char* icon_class,
                           int is_active);
-static void sendCustomNavButton(int client_fd,
+static void sendCustomNavButton(PortableSocket client_fd,
                                 const LoggerWebServer* server,
                                 const LoggerWebNavLink* link);
 static void formatRootRelativeHref(const LoggerWebServer* server,
@@ -30,11 +32,12 @@ static void formatPlainHref(const char* href, char* output, size_t output_size);
 static int hasUriScheme(const char* href);
 
 //Send a template file to the client, replacing placeholders with dynamic content.
-void loggerWebSendTemplate(int client_fd,
+void loggerWebSendTemplate(PortableSocket client_fd,
                            const char* path,
                            const LoggerWebServer* server,
                            int show_today_panel,
-                           LoggerWebPage current_page) {
+                           LoggerWebPage current_page,
+                           size_t log_limit) {
     FILE* file = fopen(path, "r");
     if (!file) {
         loggerWebSendAll(client_fd, "<p>Missing page template.</p>");
@@ -43,18 +46,24 @@ void loggerWebSendTemplate(int client_fd,
 
     char buffer[2048];
     while (fgets(buffer, sizeof(buffer), file)) {
-        sendTemplateLine(client_fd, buffer, server, show_today_panel, current_page);
+        sendTemplateLine(client_fd,
+                         buffer,
+                         server,
+                         show_today_panel,
+                         current_page,
+                         log_limit);
     }
 
     fclose(file);
 }
 
 //Send a single line of the template to the client, replacing placeholders with dynamic content.
-static void sendTemplateLine(int client_fd,
+static void sendTemplateLine(PortableSocket client_fd,
                              const char* line,
                              const LoggerWebServer* server,
                              int show_today_panel,
-                             LoggerWebPage current_page) {
+                             LoggerWebPage current_page,
+                             size_t log_limit) {
     static const char title_placeholder[] = "{{LOGGER_WEB_TITLE}}";
     static const char headers_placeholder[] = "{{LOGGER_WEB_HEADERS}}";
     static const char nav_placeholder[] = "{{LOGGER_WEB_NAV}}";
@@ -111,7 +120,7 @@ static void sendTemplateLine(int client_fd,
                 loggerWebSendTodayPanel(client_fd, server);
             }
         } else if (placeholders[placeholder_index].type == 5) {
-            loggerWebSendLogRows(client_fd, server);
+            loggerWebSendLogRows(client_fd, server, log_limit);
         } else if (placeholders[placeholder_index].type == 6) {
             loggerWebSendRawLogContent(client_fd, server);
         } else if (placeholders[placeholder_index].type == 7) {
@@ -125,7 +134,9 @@ static void sendTemplateLine(int client_fd,
 }
 
 //Send navigation links for the available views.
-void loggerWebSendNav(int client_fd, const LoggerWebServer* server, LoggerWebPage current_page) {
+void loggerWebSendNav(PortableSocket client_fd,
+                      const LoggerWebServer* server,
+                      LoggerWebPage current_page) {
     const char* log_path = loggerWebRootDirectoryEquals(server, LOGGER_WEB_ROOT_LOG) ? "/" : "/log";
     const char* graphs_path = loggerWebRootDirectoryEquals(server, LOGGER_WEB_ROOT_GRAPHS)
         ? "/"
@@ -143,7 +154,7 @@ void loggerWebSendNav(int client_fd, const LoggerWebServer* server, LoggerWebPag
     loggerWebSendAll(client_fd, "</nav>");
 }
 
-static void sendCustomNavButton(int client_fd,
+static void sendCustomNavButton(PortableSocket client_fd,
                                 const LoggerWebServer* server,
                                 const LoggerWebNavLink* link) {
     char href[LOGGER_WEB_MAX_PATH];
@@ -204,7 +215,7 @@ static int hasUriScheme(const char* href) {
     return 0;
 }
 
-static void sendNavButton(int client_fd,
+static void sendNavButton(PortableSocket client_fd,
                           const char* href,
                           const char* label,
                           const char* icon_class,
@@ -227,13 +238,13 @@ static void sendNavButton(int client_fd,
 }
 
 //Send the graph data endpoint path for the current root directory.
-static void sendGraphDataPath(int client_fd, const LoggerWebServer* server) {
+static void sendGraphDataPath(PortableSocket client_fd, const LoggerWebServer* server) {
     loggerWebSendAll(client_fd,
             loggerWebRootDirectoryEquals(server, LOGGER_WEB_ROOT_GRAPHS) ? "/data" : "/graphs/data");
 }
 
 //Send the log table headers.
-void loggerWebSendTableHeaders(int client_fd, const LoggerWebServer* server) {
+void loggerWebSendTableHeaders(PortableSocket client_fd, const LoggerWebServer* server) {
     loggerWebSendAll(client_fd, "<th>Date</th>\n                <th>Time</th>");
 
     for (size_t i = 0; i < server->column_header_count; i++) {
@@ -244,4 +255,3 @@ void loggerWebSendTableHeaders(int client_fd, const LoggerWebServer* server) {
 }
 
 
-#endif

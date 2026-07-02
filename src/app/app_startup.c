@@ -17,8 +17,11 @@ void appWriteStartupLog(const AppConfig* config)
     }
 
     // Keep startup log maintenance together so main does not need log policy details.
-    logTrim(config->log_path);
-    lprint(config->log_path, "-|-|-|-|-|startup|");
+    logger_trim(config->logger);
+    {
+        const char* fields[] = {"-", "-", "-", "-", "-", "startup", ""};
+        logger_log_fields(config->logger, fields, sizeof(fields) / sizeof(fields[0]));
+    }
 }
 
 void appStartLoggerWeb(const AppConfig* config)
@@ -43,11 +46,18 @@ void appStartLoggerWeb(const AppConfig* config)
         };
 
     // The web server setup stays declarative here; web_controls owns button behavior.
-    if (loggerWebStart(config->log_path,
-                       LOGGER_WEB_PORT,
-                       "Airscape Temperatures",
-                       logger_web_columns,
-                       sizeof(logger_web_columns) / sizeof(logger_web_columns[0]))) {
+    LoggerWebConfig logger_web_config = {
+        .logger = config->logger,
+        .port = LOGGER_WEB_PORT,
+        .bind_address = LOGGER_WEB_BIND_ADDRESS,
+        .auth_token = LOGGER_WEB_AUTH_TOKEN,
+        .title = "Airscape Temperatures",
+        .column_headers = logger_web_columns,
+        .column_header_count = sizeof(logger_web_columns) / sizeof(logger_web_columns[0]),
+        .log_row_limit = LOGGER_WEB_DEFAULT_LOG_LIMIT
+    };
+
+    if (loggerWebStartWithConfig(&logger_web_config)) {
         loggerWebInsertGraphSeries("Temperature Overlay",
                                    "Time",
                                    logger_web_temperature_graph_columns,
