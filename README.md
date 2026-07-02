@@ -38,3 +38,13 @@ the deployment path. For the portable tests, run `cmake -S . -B build
 The logger web server defaults to `127.0.0.1`, renders the newest 500 log rows
 unless `?limit=` is provided, and keeps fan controls disabled unless
 `LOGGER_WEB_ENABLE_CONTROLS` is set nonzero at compile time.
+
+Images:
+![Alt Text](images/Graph.png)
+The current root directory, which is the graph page and shows the multi-series graph with event markers
+
+![Alt Text](images/Log.png)
+The log directory, which the logger set up and important events such as the page access.
+
+![Alt Text](images/Notif.png)
+A demonstration within the log of how a notification works, which in this case is closing windows.
