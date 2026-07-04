@@ -4,6 +4,7 @@
 #include <time.h>
 #include "houseApi.h"
 #include "logger.h"
+#include "loggerSettings.h"
 #include "notification_worker.h"
 #include "portable.h"
 #include "rec.h"

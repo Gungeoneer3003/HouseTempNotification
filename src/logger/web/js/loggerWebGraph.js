@@ -222,6 +222,11 @@
         const wrapper = document.createElement("div");
         wrapper.className = "today-controls";
         wrapper.setAttribute("aria-label", "Fan controls");
+        wrapper.setAttribute("data-fan-speed",
+            Number.isFinite(controls.fanSpeed) ? controls.fanSpeed.toFixed(0) : "0");
+        wrapper.setAttribute("data-fan-power-on", controls.fanPowerOn ? "1" : "0");
+        wrapper.setAttribute("data-power-on-speed",
+            Number.isFinite(controls.powerOnSpeed) ? controls.powerOnSpeed.toFixed(0) : "1");
 
         const speedBox = document.createElement("div");
         speedBox.className = "today-control-box today-speed-box";

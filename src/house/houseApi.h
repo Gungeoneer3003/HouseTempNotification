@@ -11,6 +11,7 @@ typedef struct {
 } SensorReading;
 
 int houseReadSensor(const AppConfig* config, SensorReading* reading);
+int houseToggleFanPower(const AppConfig* config);
 int houseTurnOffFans(const AppConfig* config);
 int houseSpeedUpFans(const AppConfig* config);
 int houseSlowDownFans(const AppConfig* config);

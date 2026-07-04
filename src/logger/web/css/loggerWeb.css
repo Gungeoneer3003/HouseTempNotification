@@ -384,6 +384,11 @@ tr:last-child td {
     gap: 10px;
 }
 
+/* Requests briefly disable every fan button so the controller receives one command at a time. */
+.today-controls.is-pending {
+    cursor: progress;
+}
+
 .today-control-box {
     min-height: 82px;
     background: #0b1220;

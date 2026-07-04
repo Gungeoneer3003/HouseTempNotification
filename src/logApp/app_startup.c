@@ -1,8 +1,8 @@
 #include "app_startup.h"
 
 #include "logger.h"
+#include "loggerSettings.h"
 #include "poller.h"
-#include "settings.h"
 #include "web/loggerWeb.h"
 #include "web_controls.h"
 
@@ -18,10 +18,9 @@ void appWriteStartupLog(const AppConfig* config)
 
     // Keep startup log maintenance together so main does not need log policy details.
     logger_trim(config->logger);
-    {
-        const char* fields[] = {"-", "-", "-", "-", "-", "startup", ""};
-        logger_log_fields(config->logger, fields, sizeof(fields) / sizeof(fields[0]));
-    }
+
+    const char* fields[] = {"-", "-", "-", "-", "-", "startup", ""};
+    logger_log_fields(config->logger, fields, sizeof(fields) / sizeof(fields[0]));
 }
 
 void appStartLoggerWeb(const AppConfig* config)

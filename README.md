@@ -9,14 +9,16 @@ different environment, then you simply must change the ssh directory.
 
 The code is split by responsibility:
 
-- `src/houseNotif.c` owns the polling/debounce loop.
-- `src/recommendation/` and `src/json/` are side-effect-free core helpers.
-- `src/config/` and `src/lock/` handle local process state.
+- `src/houseNotif.c` owns process startup and long-running orchestration.
+- `src/house/` owns house config, polling, recommendations, sensor reads, and fan control.
+- `src/json/` contains side-effect-free JSON helpers.
+- `src/lock/` handles the local process lock.
+- `src/logApp/` owns application startup logging and web controls.
 - `src/logger/` contains the reusable log writer/trimmer module.
 - `src/http/` contains the reusable libcurl HTTP client module.
-- `src/house/` maps the house sensor, fan control, and Pushover APIs.
 - `src/portable/` wraps platform differences for env vars, sleep, time, and PID.
-- `src/settings/` contains shared compile-time settings.
+- `src/settings.h` contains shared compile-time settings.
+- `src/logger/loggerSettings.h` contains logger and logger-web compile-time settings.
 - `tests/` contains small focused test programs.
 
 Each module folder contains its public header and implementation file, so it can
@@ -38,3 +40,14 @@ the deployment path. For the portable tests, run `cmake -S . -B build
 The logger web server defaults to `127.0.0.1`, renders the newest 500 log rows
 unless `?limit=` is provided, and keeps fan controls disabled unless
 `LOGGER_WEB_ENABLE_CONTROLS` is set nonzero at compile time.
+
+To inspect the logger web UI locally (including Windows), build with CMake and
+run `test_logger_web` directly. The test now supports defaults and optional
+auto-open:
+
+- `test_logger_web` uses `house_notify.log` and port `8080`.
+- `test_logger_web --open` also opens your default browser.
+- `test_logger_web path\\to\\log.txt 8090 --open` uses a custom log and port.
+
+When no log file exists yet, the test writes a tiny sample log so the page has
+immediate content. Press Enter in the terminal to stop the local server.

@@ -3,6 +3,7 @@
 #endif
 
 #include "logger.h"
+#include "loggerSettings.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -16,10 +17,6 @@
 #include <windows.h>
 #else
 #include <pthread.h>
-#endif
-
-#ifndef LOG_RETENTION_DAYS
-#define LOG_RETENTION_DAYS 30
 #endif
 
 #ifndef LOGGER_LINE_SIZE

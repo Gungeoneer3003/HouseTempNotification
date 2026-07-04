@@ -58,8 +58,21 @@ int houseReadSensor(const AppConfig* config, SensorReading* reading) {
     return 0;
 }
 
-//Try to turn off the fans
-//This should happen at the same time as closing the windows
+//Toggle the Airscape power button endpoint once.
+//The web UI uses this for both directions so power-on is one controller request,
+//not several synthetic speed-up clicks.
+int houseToggleFanPower(const AppConfig* config) {
+    if (!config) {
+        return 0;
+    }
+
+    return houseSendFanCommand(config->shutoff_url,
+                               "Fan power toggle request",
+                               "Successfully toggled fan power");
+}
+
+//Try to turn off the fans.
+//This is only called from recommendation flow after a live reading says fans are on.
 int houseTurnOffFans(const AppConfig* config) {
     if (!config) {
         return 0;

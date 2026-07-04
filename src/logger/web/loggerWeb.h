@@ -21,6 +21,7 @@ typedef struct {
     int (*speed_up)(void* user);
     int (*speed_down)(void* user);
     int (*power_toggle)(void* user);
+    int power_on_speed;
     void* user;
 } LoggerWebTodayControls;
 

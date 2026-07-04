@@ -10,6 +10,7 @@
 #include <time.h>
 
 #include "logger.h"
+#include "loggerSettings.h"
 #include "portable_socket.h"
 
 #ifdef _WIN32

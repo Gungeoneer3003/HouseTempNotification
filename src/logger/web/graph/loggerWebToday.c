@@ -38,6 +38,7 @@ static void sendTodayActionButton(PortableSocket client_fd,
                                   const char* icon_class);
 static void sendTodayValue(PortableSocket client_fd, double value, int integer_value);
 static int isFanSpeedColumn(const char* name);
+static int todayPowerOnSpeed(const LoggerWebTodayControls* controls);
 static void writeTodayControlsJson(PortableSocket client_fd,
                                    const LoggerWebServer* server,
                                    const LoggerWebTodaySnapshot* snapshot);
@@ -293,8 +294,23 @@ static void sendTodayControls(PortableSocket client_fd,
     int can_speed_down = controls && controls->speed_down != NULL;
     int can_power_toggle = controls && controls->power_toggle != NULL;
     int power_on = snapshot->has_fan_power && snapshot->fan_power_on;
+    int power_on_speed = todayPowerOnSpeed(controls);
+    char fan_speed[32];
+    char power_on_speed_text[32];
 
-    loggerWebSendAll(client_fd, "<div class=\"today-controls\" aria-label=\"Fan controls\">");
+    snprintf(fan_speed,
+             sizeof(fan_speed),
+             "%.0f",
+             snapshot->has_fan_speed ? snapshot->fan_speed : 0.0);
+    snprintf(power_on_speed_text, sizeof(power_on_speed_text), "%d", power_on_speed);
+
+    loggerWebSendAll(client_fd, "<div class=\"today-controls\" aria-label=\"Fan controls\" data-fan-speed=\"");
+    loggerWebSendEscaped(client_fd, fan_speed);
+    loggerWebSendAll(client_fd, "\" data-fan-power-on=\"");
+    loggerWebSendAll(client_fd, power_on ? "1" : "0");
+    loggerWebSendAll(client_fd, "\" data-power-on-speed=\"");
+    loggerWebSendEscaped(client_fd, power_on_speed_text);
+    loggerWebSendAll(client_fd, "\">");
     loggerWebSendAll(client_fd, "<div class=\"today-control-box today-speed-box\">");
     loggerWebSendAll(client_fd, "<div class=\"today-speed-readout\"><span class=\"today-label\">Fan speed</span>");
     loggerWebSendAll(client_fd, "<span class=\"today-value\">");
@@ -360,6 +376,11 @@ static void sendTodayValue(PortableSocket client_fd, double value, int integer_v
 
 static int isFanSpeedColumn(const char* name) {
     return loggerWebStringEqualsIgnoreCase(name, "Fan Speed");
+}
+
+static int todayPowerOnSpeed(const LoggerWebTodayControls* controls) {
+    // Old callers leave this field zeroed; fall back to one visible running speed.
+    return controls && controls->power_on_speed > 0 ? controls->power_on_speed : 1;
 }
 
 void loggerWebHandleTodayControl(PortableSocket client_fd,
@@ -462,6 +483,14 @@ static void writeTodayControlsJson(PortableSocket client_fd,
     } else {
         loggerWebSendAll(client_fd, "false");
     }
+
+    loggerWebSendAll(client_fd, ",\"powerOnSpeed\":");
+    char power_on_speed[32];
+    snprintf(power_on_speed,
+             sizeof(power_on_speed),
+             "%d",
+             todayPowerOnSpeed(&server->today_controls));
+    loggerWebSendAll(client_fd, power_on_speed);
 
     loggerWebSendAll(client_fd, ",\"canSpeedUp\":");
     loggerWebSendAll(client_fd, server->today_controls.speed_up ? "true" : "false");

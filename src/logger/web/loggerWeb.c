@@ -19,7 +19,7 @@ the neighboring web modules.
 #include <stdlib.h>
 #include <string.h>
 
-#include "settings.h"
+#include "loggerSettings.h"
 
 //Logger web server state
 LoggerWebServer* active_server = NULL;

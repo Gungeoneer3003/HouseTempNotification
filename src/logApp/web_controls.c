@@ -4,6 +4,8 @@
 
 #include "houseApi.h"
 #include "logger.h"
+#include "loggerSettings.h"
+#include "portable.h"
 #include "rec.h"
 #include "settings.h"
 #include "web/loggerWeb.h"
@@ -17,7 +19,6 @@ static int loggerWebFanPowerToggle(void* arg);
 static int loggerWebRunFanCommand(void* arg,
                                   LoggerWebFanCommand command,
                                   const char* detail);
-static int loggerWebWakeFan(const AppConfig* web_config);
 static int loggerWebLogFanReading(const AppConfig* web_config, const char* detail);
 #endif
 
@@ -48,6 +49,7 @@ void webControlsConfigureToday(const AppConfig* config)
         .speed_up = loggerWebFanSpeedUp,
         .speed_down = loggerWebFanSlowDown,
         .power_toggle = loggerWebFanPowerToggle,
+        .power_on_speed = DEF_FAN_SPEED,
         .user = (void*)config
     };
     loggerWebSetTodayControls(&logger_web_today_controls);
@@ -80,7 +82,7 @@ static int loggerWebFanPowerToggle(void* arg)
     }
 
     if (current_reading.speed) {
-        // When the fan is on, the power button maps to the existing shutoff endpoint.
+        // When the fan is on, preserve the shutoff semantics used by close notifications.
         if (!houseTurnOffFans(web_config)) {
             return 0;
         }
@@ -88,8 +90,8 @@ static int loggerWebFanPowerToggle(void* arg)
         return loggerWebLogFanReading(web_config, "power off");
     }
 
-    // When the fan is off, wake it with normal sequential speed-up commands.
-    if (!loggerWebWakeFan(web_config)) {
+    // When the fan is off, use the actual power link once instead of flooding speed-up.
+    if (!houseToggleFanPower(web_config)) {
         return 0;
     }
 
@@ -113,26 +115,19 @@ static int loggerWebRunFanCommand(void* arg,
     return loggerWebLogFanReading(web_config, detail);
 }
 
-static int loggerWebWakeFan(const AppConfig* web_config)
+static int loggerWebLogFanReading(const AppConfig* web_config, const char* detail)
 {
+    SensorReading updated_reading;
     if (!web_config) {
         return 0;
     }
 
-    // When powered off, the fan speed starts at 0; repeated speed-up calls reach DEF_FAN_SPEED.
-    for (int i = 0; i < DEF_FAN_SPEED; i++) {
-        if (!houseSpeedUpFans(web_config)) {
-            return 0;
-        }
+    // The Airscape controller can acknowledge a command before CGI reports the new speed.
+    if (LOGGER_WEB_FAN_SETTLE_SECONDS > 0) {
+        portableSleepSeconds(LOGGER_WEB_FAN_SETTLE_SECONDS);
     }
 
-    return 1;
-}
-
-static int loggerWebLogFanReading(const AppConfig* web_config, const char* detail)
-{
-    SensorReading updated_reading;
-    if (!web_config || !houseReadSensor(web_config, &updated_reading)) {
+    if (!houseReadSensor(web_config, &updated_reading)) {
         return 0;
     }
 

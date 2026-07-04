@@ -9,19 +9,15 @@ set(CMAKE_C_EXTENSIONS OFF)
 option(BUILD_HOUSE_APP "Build the full notifier executable" ON)
 
 set(PROJECT_INCLUDE_DIRS
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/app
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/config
     ${CMAKE_CURRENT_SOURCE_DIR}/src/house
     ${CMAKE_CURRENT_SOURCE_DIR}/src/http
     ${CMAKE_CURRENT_SOURCE_DIR}/src/json
     ${CMAKE_CURRENT_SOURCE_DIR}/src/lock
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/logApp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/logger
     ${CMAKE_CURRENT_SOURCE_DIR}/src/notification
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/poller
     ${CMAKE_CURRENT_SOURCE_DIR}/src/portable
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/recommendation
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/settings
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/web_controls
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
 set(LOGGER_WEB_SOURCES
@@ -54,7 +50,7 @@ endif()
 add_executable(test_core
     tests/test_core.c
     src/json/jsonUtils.c
-    src/recommendation/rec.c
+    src/house/rec.c
 )
 target_include_directories(test_core PRIVATE ${PROJECT_INCLUDE_DIRS})
 
@@ -74,17 +70,17 @@ if(BUILD_HOUSE_APP)
     if(CURL_FOUND)
         add_executable(houseNotif
             src/houseNotif.c
-            src/app/app_startup.c
-            src/poller/poller.c
+            src/logApp/app_startup.c
+            src/house/poller.c
             src/notification/notification_worker.c
-            src/web_controls/web_controls.c
-            src/config/config.c
+            src/logApp/web_controls.c
+            src/house/config.c
             src/house/houseApi.c
             src/http/httpClient.c
             src/lock/instanceLock.c
             src/json/jsonUtils.c
             src/portable/portable.c
-            src/recommendation/rec.c
+            src/house/rec.c
         )
         target_include_directories(houseNotif PRIVATE ${PROJECT_INCLUDE_DIRS})
         target_link_libraries(houseNotif PRIVATE logger_web CURL::libcurl Threads::Threads)
