@@ -51,3 +51,12 @@ auto-open:
 
 When no log file exists yet, the test writes a tiny sample log so the page has
 immediate content. Press Enter in the terminal to stop the local server.
+Images:
+![Alt Text](images/Graph.png)
+The current root directory, which is the graph page and shows the multi-series graph with event markers
+
+![Alt Text](images/Log.png)
+The log directory, which the logger set up and important events such as the page access.
+
+![Alt Text](images/Notif.png)
+A demonstration within the log of how a notification works, which in this case is closing windows.
