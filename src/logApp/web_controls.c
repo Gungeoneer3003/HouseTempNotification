@@ -23,6 +23,11 @@ static int loggerWebFanPowerToggle(void* arg);
 static int loggerWebRunFanCommand(void* arg,
                                   LoggerWebFanCommand command,
                                   const char* detail);
+static int loggerWebReadSettledFan(const AppConfig* web_config,
+                                   SensorReading* reading);
+static int loggerWebLogFanSnapshot(const AppConfig* web_config,
+                                   const SensorReading* reading,
+                                   const char* detail);
 static int loggerWebLogFanReading(const AppConfig* web_config, const char* detail);
 #endif
 
@@ -92,12 +97,33 @@ static int loggerWebFanPowerToggle(void* arg)
         return loggerWebLogFanReading(web_config, "power off");
     }
 
-    // When the fan is off, use the actual power link once instead of flooding speed-up.
+    // Wake the fan once, then send only the speed changes still needed to reach the
+    // configured default. Keeping these requests sequential avoids overloading the
+    // controller while preserving the intended power-on speed.
     if (!houseToggleFanPower(web_config)) {
         return 0;
     }
 
-    return loggerWebLogFanReading(web_config, "power on");
+    SensorReading updated_reading;
+    if (!loggerWebReadSettledFan(web_config, &updated_reading) ||
+        updated_reading.speed <= 0) {
+        return 0;
+    }
+
+    int speed_up_count = 0;
+    while (updated_reading.speed < DEF_FAN_SPEED &&
+           speed_up_count < DEF_FAN_SPEED) {
+        if (!houseSpeedUpFans(web_config)) {
+            return 0;
+        }
+
+        speed_up_count++;
+        if (!loggerWebReadSettledFan(web_config, &updated_reading)) {
+            return 0;
+        }
+    }
+
+    return loggerWebLogFanSnapshot(web_config, &updated_reading, "power on");
 }
 
 static int loggerWebRunFanCommand(void* arg,
@@ -120,7 +146,17 @@ static int loggerWebRunFanCommand(void* arg,
 static int loggerWebLogFanReading(const AppConfig* web_config, const char* detail)
 {
     SensorReading updated_reading;
-    if (!web_config) {
+    if (!loggerWebReadSettledFan(web_config, &updated_reading)) {
+        return 0;
+    }
+
+    return loggerWebLogFanSnapshot(web_config, &updated_reading, detail);
+}
+
+static int loggerWebReadSettledFan(const AppConfig* web_config,
+                                   SensorReading* reading)
+{
+    if (!web_config || !reading) {
         return 0;
     }
 
@@ -129,23 +165,30 @@ static int loggerWebLogFanReading(const AppConfig* web_config, const char* detai
         portableSleepSeconds(LOGGER_WEB_FAN_SETTLE_SECONDS);
     }
 
-    if (!houseReadSensor(web_config, &updated_reading)) {
+    return houseReadSensor(web_config, reading);
+}
+
+static int loggerWebLogFanSnapshot(const AppConfig* web_config,
+                                   const SensorReading* reading,
+                                   const char* detail)
+{
+    if (!web_config || !reading) {
         return 0;
     }
 
-    // The fresh log row is what the Today panel reads after the control request reloads.
-    Rec updated_rec = getRec(updated_reading.house,
-                             updated_reading.outside_air,
-                             updated_reading.speed);
+    // The control response reads this fresh row and returns the final state to the browser.
+    Rec updated_rec = getRec(reading->house,
+                             reading->outside_air,
+                             reading->speed);
     char house[16];
     char outside_air[16];
     char attic[16];
     char speed[16];
 
-    snprintf(house, sizeof(house), "%d", updated_reading.house);
-    snprintf(outside_air, sizeof(outside_air), "%d", updated_reading.outside_air);
-    snprintf(attic, sizeof(attic), "%d", updated_reading.attic);
-    snprintf(speed, sizeof(speed), "%d", updated_reading.speed);
+    snprintf(house, sizeof(house), "%d", reading->house);
+    snprintf(outside_air, sizeof(outside_air), "%d", reading->outside_air);
+    snprintf(attic, sizeof(attic), "%d", reading->attic);
+    snprintf(speed, sizeof(speed), "%d", reading->speed);
 
     const char* fields[] = {
         house,

@@ -1,6 +1,5 @@
 (function () {
     let controlRequestInFlight = false;
-    const reloadDelayMs = 1200;
 
     //Today control buttons post to explicit endpoints so simple page loads stay read-only.
     document.addEventListener("click", async function (event) {
@@ -21,10 +20,6 @@
         setTodayControlsDisabled(controls, true);
         button.classList.remove("today-control-error");
 
-        // Show the expected result right away; the physical controller is polled after it settles.
-        writeTodayControlState(controls, nextTodayControlState(endpoint, controls, previousState));
-
-        let requestSucceeded = false;
         try {
             const response = await fetch(endpoint, {
                 method: "POST",
@@ -34,10 +29,16 @@
                 throw new Error("today control request failed");
             }
 
-            requestSucceeded = true;
-            window.setTimeout(function () {
-                window.location.reload();
-            }, reloadDelayMs);
+            const snapshot = await response.json();
+            if (!snapshot || !snapshot.controls ||
+                !Number.isFinite(Number(snapshot.controls.fanSpeed))) {
+                throw new Error("today control response was missing final state");
+            }
+
+            writeTodayControlState(controls, {
+                speed: Number(snapshot.controls.fanSpeed),
+                powerOn: !!snapshot.controls.fanPowerOn
+            });
         } catch (error) {
             writeTodayControlState(controls, previousState);
             button.classList.add("today-control-error");
@@ -45,10 +46,8 @@
                 button.classList.remove("today-control-error");
             }, 1400);
         } finally {
-            if (!requestSucceeded) {
-                controlRequestInFlight = false;
-                setTodayControlsDisabled(controls, false);
-            }
+            controlRequestInFlight = false;
+            setTodayControlsDisabled(controls, false);
         }
     });
 
@@ -90,25 +89,6 @@
         };
     }
 
-    function nextTodayControlState(endpoint, controls, state) {
-        const current = state || { speed: 0, powerOn: false };
-        let speed = current.speed;
-        let powerOn = current.powerOn;
-
-        if (endpoint.endsWith("/speed/up")) {
-            speed += 1;
-            powerOn = speed > 0;
-        } else if (endpoint.endsWith("/speed/down")) {
-            speed = Math.max(0, speed - 1);
-            powerOn = speed > 0;
-        } else if (endpoint.endsWith("/power/toggle")) {
-            powerOn = !powerOn;
-            speed = powerOn ? Math.max(speed, powerOnSpeed(controls)) : 0;
-        }
-
-        return { speed, powerOn };
-    }
-
     function writeTodayControlState(controls, state) {
         if (!controls || !state) {
             return;
@@ -129,11 +109,6 @@
             powerButton.classList.toggle("is-off", !state.powerOn);
             powerButton.setAttribute("aria-pressed", state.powerOn ? "true" : "false");
         }
-    }
-
-    function powerOnSpeed(controls) {
-        const configured = controls ? Number(controls.getAttribute("data-power-on-speed")) : 0;
-        return Number.isFinite(configured) && configured > 0 ? Math.round(configured) : 1;
     }
 
     function numberFromText(attributeValue, element) {

@@ -425,7 +425,16 @@ void loggerWebHandleTodayControl(PortableSocket client_fd,
         return;
     }
 
-    loggerWebSendNoContent(client_fd);
+    // The callback logs its settled reading before returning. Send that snapshot back
+    // so the browser can display the final hardware state without reloading the page.
+    loggerWebSendAll(client_fd,
+                     "HTTP/1.1 200 OK\r\n"
+                     "Content-Type: application/json; charset=utf-8\r\n"
+                     "Cache-Control: no-store\r\n"
+                     "Connection: close\r\n\r\n");
+    loggerWebMutexLock(&active_server_mutex);
+    loggerWebWriteTodayJson(client_fd, server);
+    loggerWebMutexUnlock(&active_server_mutex);
 }
 
 void loggerWebWriteTodayJson(PortableSocket client_fd, const LoggerWebServer* server) {

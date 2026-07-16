@@ -49,7 +49,7 @@
 
 //The default speed for the fan after being awoken from power off
 #ifndef DEF_FAN_SPEED
-#define DEF_FAN_SPEED 4
+#define DEF_FAN_SPEED 8
 #endif
 
 #endif
