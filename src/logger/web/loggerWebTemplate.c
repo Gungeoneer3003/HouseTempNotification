@@ -20,7 +20,8 @@ static void sendNavButton(PortableSocket client_fd,
                           const char* href,
                           const char* label,
                           const char* icon_class,
-                          int is_active);
+                          int is_active,
+                          int open_in_new_tab);
 static void sendCustomNavButton(PortableSocket client_fd,
                                 const LoggerWebServer* server,
                                 const LoggerWebNavLink* link);
@@ -143,10 +144,10 @@ void loggerWebSendNav(PortableSocket client_fd,
         : "/graphs";
 
     loggerWebSendAll(client_fd, "<nav class=\"nav\" aria-label=\"Views\">");
-    sendNavButton(client_fd, log_path, "Log", "nav-icon--log", current_page == LOGGER_WEB_PAGE_LOG);
-    sendNavButton(client_fd, "/raw", "Raw log", "nav-icon--raw", current_page == LOGGER_WEB_PAGE_RAW);
+    sendNavButton(client_fd, log_path, "Log", "nav-icon--log", current_page == LOGGER_WEB_PAGE_LOG, 0);
+    sendNavButton(client_fd, "/raw", "Raw log", "nav-icon--raw", current_page == LOGGER_WEB_PAGE_RAW, 0);
     if (loggerWebHasGraphs(server)) {
-        sendNavButton(client_fd, graphs_path, "Graphs", "nav-icon--graphs", current_page == LOGGER_WEB_PAGE_GRAPHS);
+        sendNavButton(client_fd, graphs_path, "Graphs", "nav-icon--graphs", current_page == LOGGER_WEB_PAGE_GRAPHS, 0);
     }
     for (size_t i = 0; i < server->nav_link_count; i++) {
         sendCustomNavButton(client_fd, server, &server->nav_links[i]);
@@ -167,7 +168,12 @@ static void sendCustomNavButton(PortableSocket client_fd,
         formatPlainHref(link->href, href, sizeof(href));
     }
 
-    sendNavButton(client_fd, rendered_href, link->label, "nav-icon--link", 0);
+    sendNavButton(client_fd,
+                  rendered_href,
+                  link->label,
+                  "nav-icon--link",
+                  0,
+                  hasUriScheme(rendered_href));
 }
 
 static void formatRootRelativeHref(const LoggerWebServer* server,
@@ -219,7 +225,8 @@ static void sendNavButton(PortableSocket client_fd,
                           const char* href,
                           const char* label,
                           const char* icon_class,
-                          int is_active) {
+                          int is_active,
+                          int open_in_new_tab) {
     loggerWebSendAll(client_fd, "<a class=\"nav-button");
     if (is_active) {
         loggerWebSendAll(client_fd, " is-active");
@@ -229,6 +236,9 @@ static void sendNavButton(PortableSocket client_fd,
     loggerWebSendAll(client_fd, "\"");
     if (is_active) {
         loggerWebSendAll(client_fd, " aria-current=\"page\"");
+    }
+    if (open_in_new_tab) {
+        loggerWebSendAll(client_fd, " target=\"_blank\" rel=\"noopener noreferrer\"");
     }
     loggerWebSendAll(client_fd, "><span class=\"nav-icon ");
     loggerWebSendEscaped(client_fd, icon_class);

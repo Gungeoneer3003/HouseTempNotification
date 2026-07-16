@@ -5,3 +5,4 @@ test_core
 test_notification
 houseNotif
 build/
+out/

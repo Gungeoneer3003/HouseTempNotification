@@ -1,0 +1,7 @@
+{
+  "cmake.useCMakePresets": "always",
+  "cmake.configurePreset": "windows-msvc-tests",
+  "cmake.buildPreset": "windows-msvc-tests-debug",
+  "cmake.testPreset": "windows-msvc-tests-debug",
+  "cmake.configureOnOpen": true
+}

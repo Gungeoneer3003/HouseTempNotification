@@ -1,0 +1,65 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 25,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "windows-msvc-tests",
+      "displayName": "Windows MSVC tests",
+      "description": "Configure local Windows test targets without needing to pick a CMake Tools kit.",
+      "generator": "Visual Studio 18 2026",
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "cacheVariables": {
+        "BUILD_HOUSE_APP": "OFF"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      }
+    },
+    {
+      "name": "windows-msvc",
+      "displayName": "Windows MSVC all available targets",
+      "description": "Configure local Windows targets. houseNotif is built only when libcurl is available.",
+      "generator": "Visual Studio 18 2026",
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "cacheVariables": {
+        "BUILD_HOUSE_APP": "ON"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "windows-msvc-tests-debug",
+      "displayName": "Build Windows tests Debug",
+      "configurePreset": "windows-msvc-tests",
+      "configuration": "Debug"
+    },
+    {
+      "name": "windows-msvc-debug",
+      "displayName": "Build Windows Debug",
+      "configurePreset": "windows-msvc",
+      "configuration": "Debug"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "windows-msvc-tests-debug",
+      "displayName": "Run Windows tests Debug",
+      "configurePreset": "windows-msvc-tests",
+      "configuration": "Debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}

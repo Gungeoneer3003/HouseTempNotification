@@ -35,11 +35,40 @@ by setting `TEST_NOTIFICATION_MESSAGE` in the remote environment before running
 `./test_notification`.
 
 CMake is available for local focused builds and CI while the Makefile remains
-the deployment path. For the portable tests, run `cmake -S . -B build
--DBUILD_HOUSE_APP=OFF`, then `cmake --build build` and `ctest --test-dir build`.
+the deployment path. On the local Windows machine, use the checked-in CMake
+presets so VS Code does not need to ask for a compiler kit:
+
+```powershell
+cmake --preset windows-msvc-tests
+cmake --build --preset windows-msvc-tests-debug
+ctest --preset windows-msvc-tests-debug
+```
+
+The VS Code default build task runs the same local test build. The automated
+local CTest suite covers the core test, logger test, and a logger-web startup
+smoke test. The notification test is intentionally not part of CTest because it
+sends a real Pushover notification; run it explicitly with `make notify-test` on
+the remote host.
+
+To view the same logger web setup used by the real app, run the VS Code task
+`Run local logger web`, or run the built executable directly:
+
+```powershell
+.\\out\\build\\windows-msvc-tests\\Debug\\test_logger_web.exe .\\house_notify.log 8080 --open
+```
+
+The local viewer uses the production logger-web configuration from
+`appStartLoggerWeb`. It shows the Today fan controls, but wires them to local
+no-op callbacks so simply opening or clicking it on Windows cannot call the
+house controller. It also appends a few recent sample rows when the selected log
+has no data in the default graph range.
+
+To build every available local target, use `cmake --preset windows-msvc` and
+then `cmake --build --preset windows-msvc-debug`; the full `houseNotif` target
+still requires libcurl and is skipped when libcurl is not installed.
+
 The logger web server defaults to `127.0.0.1`, renders the newest 500 log rows
-unless `?limit=` is provided, and keeps fan controls disabled unless
-`LOGGER_WEB_ENABLE_CONTROLS` is set nonzero at compile time.
+unless `?limit=` is provided.
 
 To inspect the logger web UI locally (including Windows), build with CMake and
 run `test_logger_web` directly. The test now supports defaults and optional

@@ -6,7 +6,7 @@
 #include "web/loggerWeb.h"
 #include "web_controls.h"
 
-#if LOGGER_WEB_PORT > 0
+#if LOGGER_WEB_PORT > 0 && LOGGER_WEB_POLL_ON_ACCESS > 0
 static int loggerWebPollNow(void* arg);
 #endif
 
@@ -25,7 +25,12 @@ void appWriteStartupLog(const AppConfig* config)
 
 void appStartLoggerWeb(const AppConfig* config)
 {
-    if (!config) {
+    appStartLoggerWebOnPort(config, LOGGER_WEB_PORT);
+}
+
+void appStartLoggerWebOnPort(const AppConfig* config, unsigned short port)
+{
+    if (!config || port == 0) {
         return;
     }
 
@@ -47,7 +52,7 @@ void appStartLoggerWeb(const AppConfig* config)
     // The web server setup stays declarative here; web_controls owns button behavior.
     LoggerWebConfig logger_web_config = {
         .logger = config->logger,
-        .port = LOGGER_WEB_PORT,
+        .port = port,
         .bind_address = LOGGER_WEB_BIND_ADDRESS,
         .auth_token = LOGGER_WEB_AUTH_TOKEN,
         .title = "Airscape Temperatures",
@@ -70,17 +75,22 @@ void appStartLoggerWeb(const AppConfig* config)
 
         webControlsConfigureToday(config);
         loggerWebSetRootDirectory("graphs");
+#if LOGGER_WEB_POLL_ON_ACCESS > 0
         loggerWebSetAccessPoller(LOGGER_WEB_POLL_ON_ACCESS, loggerWebPollNow, (void*)config);
+#else
+        loggerWebSetAccessPoller(0, NULL, NULL);
+#endif
 
         // The Airscape controller lives outside this web app, so render it as a plain link.
         loggerWebAddNavLink("Airscape", config->house_link, 0);
+        //loggerWebAddNavLink("Surprise Me", "https://www.youtube.com/watch?v=dQw4w9WgXcQ", 0);
     }
 #else
     (void)config;
 #endif
 }
 
-#if LOGGER_WEB_PORT > 0
+#if LOGGER_WEB_PORT > 0 && LOGGER_WEB_POLL_ON_ACCESS > 0
 static int loggerWebPollNow(void* arg)
 {
     const AppConfig* config = (const AppConfig*)arg;

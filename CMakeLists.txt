@@ -61,8 +61,20 @@ add_executable(test_logger
 target_include_directories(test_logger PRIVATE ${PROJECT_INCLUDE_DIRS})
 target_link_libraries(test_logger PRIVATE Threads::Threads)
 
-add_executable(test_logger_web tests/test_logger_web.c)
+add_executable(test_logger_web
+    tests/test_logger_web.c
+    src/logApp/app_startup.c
+    src/logApp/web_controls.c
+    src/house/config.c
+    src/portable/portable.c
+)
 target_include_directories(test_logger_web PRIVATE ${PROJECT_INCLUDE_DIRS})
+target_compile_definitions(test_logger_web PRIVATE
+    LOGGER_WEB_BIND_ADDRESS="127.0.0.1"
+    LOGGER_WEB_ENABLE_CONTROLS=0
+    LOGGER_WEB_SHOW_CONTROLS=1
+    LOGGER_WEB_POLL_ON_ACCESS=0
+)
 target_link_libraries(test_logger_web PRIVATE logger_web)
 
 if(BUILD_HOUSE_APP)
@@ -92,3 +104,6 @@ endif()
 enable_testing()
 add_test(NAME core COMMAND test_core)
 add_test(NAME logger COMMAND test_logger)
+add_test(NAME logger_web_smoke
+    COMMAND test_logger_web ${CMAKE_CURRENT_BINARY_DIR}/logger_web_smoke.log 18080 --smoke
+)

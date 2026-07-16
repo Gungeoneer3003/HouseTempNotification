@@ -5,5 +5,6 @@
 
 void appWriteStartupLog(const AppConfig* config);
 void appStartLoggerWeb(const AppConfig* config);
+void appStartLoggerWebOnPort(const AppConfig* config, unsigned short port);
 
 #endif

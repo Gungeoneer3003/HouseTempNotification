@@ -10,7 +10,11 @@
 #include "settings.h"
 #include "web/loggerWeb.h"
 
-#if LOGGER_WEB_PORT > 0
+#ifndef LOGGER_WEB_SHOW_CONTROLS
+#define LOGGER_WEB_SHOW_CONTROLS LOGGER_WEB_ENABLE_CONTROLS
+#endif
+
+#if LOGGER_WEB_PORT > 0 && LOGGER_WEB_ENABLE_CONTROLS
 typedef int (*LoggerWebFanCommand)(const AppConfig* config);
 
 static int loggerWebFanSpeedUp(void* arg);
@@ -38,12 +42,9 @@ void webControlsConfigureToday(const AppConfig* config)
     loggerWebShowToday(logger_web_today_columns,
                        sizeof(logger_web_today_columns) / sizeof(logger_web_today_columns[0]),
                        1,
-                       LOGGER_WEB_ENABLE_CONTROLS);
+                       LOGGER_WEB_SHOW_CONTROLS);
 
-    if (!LOGGER_WEB_ENABLE_CONTROLS) {
-        return;
-    }
-
+#if LOGGER_WEB_ENABLE_CONTROLS
     // Wire each web fan button to its matching house API endpoint.
     LoggerWebTodayControls logger_web_today_controls = {
         .speed_up = loggerWebFanSpeedUp,
@@ -53,12 +54,13 @@ void webControlsConfigureToday(const AppConfig* config)
         .user = (void*)config
     };
     loggerWebSetTodayControls(&logger_web_today_controls);
+#endif
 #else
     (void)config;
 #endif
 }
 
-#if LOGGER_WEB_PORT > 0
+#if LOGGER_WEB_PORT > 0 && LOGGER_WEB_ENABLE_CONTROLS
 static int loggerWebFanSpeedUp(void* arg)
 {
     return loggerWebRunFanCommand(arg, houseSpeedUpFans, "speed up");
