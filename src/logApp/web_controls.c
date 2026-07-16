@@ -32,6 +32,8 @@ static int loggerWebRunFanCommand(void* arg,
                                   const char* detail);
 static int loggerWebReadSettledFan(const AppConfig* web_config,
                                    SensorReading* reading);
+static int loggerWebWaitForFanPowerOn(const AppConfig* web_config,
+                                      SensorReading* reading);
 static int loggerWebLogFanSnapshot(const AppConfig* web_config,
                                    const SensorReading* reading,
                                    const char* detail);
@@ -124,8 +126,7 @@ static int loggerWebFanPowerToggle(void* arg)
     }
 
     SensorReading updated_reading;
-    if (!loggerWebReadSettledFan(web_config, &updated_reading) ||
-        updated_reading.speed <= 0) {
+    if (!loggerWebWaitForFanPowerOn(web_config, &updated_reading)) {
         return 0;
     }
 
@@ -185,6 +186,41 @@ static int loggerWebReadSettledFan(const AppConfig* web_config,
     }
 
     return houseReadSensor(web_config, reading);
+}
+
+static int loggerWebWaitForFanPowerOn(const AppConfig* web_config,
+                                      SensorReading* reading)
+{
+    if (!web_config || !reading) {
+        return 0;
+    }
+
+    if (LOGGER_WEB_FAN_POWER_ON_SECONDS > 0) {
+        portableSleepSeconds(LOGGER_WEB_FAN_POWER_ON_SECONDS);
+    }
+
+    int poll_count = LOGGER_WEB_FAN_POWER_ON_POLL_COUNT > 0
+        ? LOGGER_WEB_FAN_POWER_ON_POLL_COUNT
+        : 1;
+    for (int attempt = 0; attempt < poll_count; attempt++) {
+        if (!houseReadSensor(web_config, reading)) {
+            return 0;
+        }
+
+        if (reading->speed > 0) {
+            return 1;
+        }
+
+        if (attempt + 1 < poll_count && LOGGER_WEB_FAN_SETTLE_SECONDS > 0) {
+            portableSleepSeconds(LOGGER_WEB_FAN_SETTLE_SECONDS);
+        }
+    }
+
+    fprintf(stderr,
+            "Fan power-on did not report a running speed after %d seconds\n",
+            LOGGER_WEB_FAN_POWER_ON_SECONDS +
+                (poll_count - 1) * LOGGER_WEB_FAN_SETTLE_SECONDS);
+    return 0;
 }
 
 static int loggerWebLogFanSnapshot(const AppConfig* web_config,

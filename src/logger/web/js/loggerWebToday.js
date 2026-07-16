@@ -20,6 +20,11 @@
         controlRequestInFlight = true;
         setTodayControlsDisabled(controls, true);
         button.classList.remove("today-control-error");
+        writeControlMessage(
+            todayPanel,
+            controlProgressMessage(endpoint, controls, previousState),
+            "pending"
+        );
 
         try {
             const response = await fetch(endpoint, {
@@ -27,7 +32,8 @@
                 cache: "no-store"
             });
             if (!response.ok) {
-                throw new Error("today control request failed");
+                const detail = (await response.text()).trim();
+                throw new Error(detail || "The fan controller rejected the request.");
             }
 
             const snapshot = await response.json();
@@ -41,9 +47,21 @@
                 powerOn: !!snapshot.controls.fanPowerOn
             });
             writeTodayStatus(todayPanel, snapshot.status);
+            writeControlMessage(
+                todayPanel,
+                controlSuccessMessage(endpoint, snapshot.controls),
+                "success"
+            );
         } catch (error) {
             writeTodayControlState(controls, previousState);
             button.classList.add("today-control-error");
+            writeControlMessage(
+                todayPanel,
+                `Fan control failed: ${error && error.message
+                    ? error.message
+                    : "the controller did not respond."}`,
+                "error"
+            );
             window.setTimeout(function () {
                 button.classList.remove("today-control-error");
             }, 1400);
@@ -52,6 +70,52 @@
             setTodayControlsDisabled(controls, false);
         }
     });
+
+    function controlProgressMessage(endpoint, controls, state) {
+        if (endpoint.endsWith("/power/toggle")) {
+            if (!state || !state.powerOn) {
+                const target = Math.max(1, Math.round(numberFromText(
+                    controls ? controls.getAttribute("data-power-on-speed") : null,
+                    null
+                )));
+                return `Opening the fan shutters, then setting fan speed to ${target}. ` +
+                    "This normally takes at least 10 seconds…";
+            }
+            return "Turning the fan off and waiting for the controller…";
+        }
+
+        return endpoint.endsWith("/speed/up")
+            ? "Increasing fan speed and checking the final setting…"
+            : "Decreasing fan speed and checking the final setting…";
+    }
+
+    function controlSuccessMessage(endpoint, controls) {
+        const speed = Math.max(0, Math.round(Number(controls.fanSpeed)));
+        if (endpoint.endsWith("/power/toggle")) {
+            return controls.fanPowerOn
+                ? `Fan shutters are open and the fan is running at speed ${speed}.`
+                : "The fan is off.";
+        }
+        return `Fan speed is now ${speed}.`;
+    }
+
+    function writeControlMessage(todayPanel, message, state) {
+        if (!todayPanel || !message) {
+            return;
+        }
+
+        let box = todayPanel.querySelector(".today-control-message");
+        if (!box) {
+            box = document.createElement("div");
+            box.className = "today-control-message";
+            box.setAttribute("role", "status");
+            box.setAttribute("aria-live", "polite");
+            todayPanel.appendChild(box);
+        }
+
+        box.className = `today-control-message is-${state}`;
+        box.textContent = message;
+    }
 
     function writeTodayStatus(todayPanel, status) {
         if (!todayPanel || typeof status !== "string" || status.length === 0) {

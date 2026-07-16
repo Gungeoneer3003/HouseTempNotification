@@ -518,6 +518,32 @@ tr:last-child td {
     border-color: #f87171 !important;
 }
 
+.today-control-message {
+    grid-column: 1 / -1;
+    padding: 8px 10px;
+    color: #cbd5e1;
+    background: #0b1220;
+    border: 1px solid #334155;
+    border-radius: 4px;
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.today-control-message.is-pending {
+    color: #dbeafe;
+    border-color: #60a5fa;
+}
+
+.today-control-message.is-success {
+    color: #bbf7d0;
+    border-color: #22c55e;
+}
+
+.today-control-message.is-error {
+    color: #fecaca;
+    border-color: #f87171;
+}
+
 @media (max-width: 760px) {
     .today-panel--controls {
         grid-template-columns: 1fr;
