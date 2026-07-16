@@ -19,7 +19,7 @@ appropriate response back to the client.
 static void sendRoot(PortableSocket client_fd,
                      const LoggerWebServer* server,
                      size_t log_limit);
-static void pollForPageAccess(const LoggerWebServer* server, int is_root);
+static void pollForPageAccess(LoggerWebServer* server, int is_root);
 static int parseRequest(const char* request,
                         char* method,
                         size_t method_size,
@@ -97,7 +97,7 @@ static int pathEquals(const char* path, const char* expected) {
            path[expected_length + 1] == '\0';
 }
 
-void loggerWebHandleClient(PortableSocket client_fd, const LoggerWebServer* server) {
+void loggerWebHandleClient(PortableSocket client_fd, LoggerWebServer* server) {
     char request[1024];
     long bytes = portableSocketRecv(client_fd, request, sizeof(request) - 1);
     if (bytes <= 0) {
@@ -179,7 +179,7 @@ static void sendRoot(PortableSocket client_fd,
     loggerWebSendIndex(client_fd, server, 1, log_limit);
 }
 
-static void pollForPageAccess(const LoggerWebServer* server, int is_root) {
+static void pollForPageAccess(LoggerWebServer* server, int is_root) {
     LoggerWebAccessPoller poller = NULL;
     void* user = NULL;
     int mode = 0;
@@ -196,7 +196,11 @@ static void pollForPageAccess(const LoggerWebServer* server, int is_root) {
         return;
     }
 
+    // Page-triggered sensor reads and fan commands share the house controller.
+    // Keep those operations serialized while allowing unrelated web requests through.
+    loggerWebMutexLock(&server->today_control_mutex);
     (void)poller(user);
+    loggerWebMutexUnlock(&server->today_control_mutex);
 }
 
 static size_t parseLogLimit(const char* request, const LoggerWebServer* server) {

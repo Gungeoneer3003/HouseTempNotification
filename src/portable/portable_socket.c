@@ -132,7 +132,13 @@ long portableSocketSend(PortableSocket socket_fd, const char* buffer, size_t len
     }
     return (long)send(socket_fd, buffer, (int)length, 0);
 #else
+    // A browser or proxy may disconnect while a long-running control request is
+    // settling. Do not let that closed connection terminate the whole process.
+#ifdef MSG_NOSIGNAL
+    return (long)send(socket_fd, buffer, length, MSG_NOSIGNAL);
+#else
     return (long)send(socket_fd, buffer, length, 0);
+#endif
 #endif
 }
 

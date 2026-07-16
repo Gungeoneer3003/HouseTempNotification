@@ -466,7 +466,7 @@ static int todayPowerOnSpeed(const LoggerWebTodayControls* controls) {
 }
 
 void loggerWebHandleTodayControl(PortableSocket client_fd,
-                                 const LoggerWebServer* server,
+                                 LoggerWebServer* server,
                                  const char* action) {
     LoggerWebTodayControls controls;
     memset(&controls, 0, sizeof(controls));
@@ -499,13 +499,16 @@ void loggerWebHandleTodayControl(PortableSocket client_fd,
         return;
     }
 
+    loggerWebMutexLock(&server->today_control_mutex);
     if (!handler(controls.user)) {
+        loggerWebMutexUnlock(&server->today_control_mutex);
         loggerWebSendPlainStatus(client_fd,
                                  500,
                                  "Internal Server Error",
                                  "Fan control request failed.\n");
         return;
     }
+    loggerWebMutexUnlock(&server->today_control_mutex);
 
     // The callback logs its settled reading before returning. Send that snapshot back
     // so the browser can display the final hardware state without reloading the page.

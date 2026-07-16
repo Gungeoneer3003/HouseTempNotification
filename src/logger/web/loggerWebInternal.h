@@ -17,24 +17,66 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 typedef SRWLOCK LoggerWebMutex;
+typedef CONDITION_VARIABLE LoggerWebCondition;
 typedef HANDLE LoggerWebThread;
 #define LOGGER_WEB_MUTEX_INITIALIZER SRWLOCK_INIT
+static inline int loggerWebMutexInit(LoggerWebMutex* mutex) {
+    InitializeSRWLock(mutex);
+    return 1;
+}
+static inline void loggerWebMutexDestroy(LoggerWebMutex* mutex) {
+    (void)mutex;
+}
 static inline void loggerWebMutexLock(LoggerWebMutex* mutex) {
     AcquireSRWLockExclusive(mutex);
 }
 static inline void loggerWebMutexUnlock(LoggerWebMutex* mutex) {
     ReleaseSRWLockExclusive(mutex);
 }
+static inline int loggerWebConditionInit(LoggerWebCondition* condition) {
+    InitializeConditionVariable(condition);
+    return 1;
+}
+static inline void loggerWebConditionDestroy(LoggerWebCondition* condition) {
+    (void)condition;
+}
+static inline void loggerWebConditionWait(LoggerWebCondition* condition,
+                                          LoggerWebMutex* mutex) {
+    SleepConditionVariableSRW(condition, mutex, INFINITE, 0);
+}
+static inline void loggerWebConditionWakeAll(LoggerWebCondition* condition) {
+    WakeAllConditionVariable(condition);
+}
 #else
 #include <pthread.h>
 typedef pthread_mutex_t LoggerWebMutex;
+typedef pthread_cond_t LoggerWebCondition;
 typedef pthread_t LoggerWebThread;
 #define LOGGER_WEB_MUTEX_INITIALIZER PTHREAD_MUTEX_INITIALIZER
+static inline int loggerWebMutexInit(LoggerWebMutex* mutex) {
+    return pthread_mutex_init(mutex, NULL) == 0;
+}
+static inline void loggerWebMutexDestroy(LoggerWebMutex* mutex) {
+    pthread_mutex_destroy(mutex);
+}
 static inline void loggerWebMutexLock(LoggerWebMutex* mutex) {
     pthread_mutex_lock(mutex);
 }
 static inline void loggerWebMutexUnlock(LoggerWebMutex* mutex) {
     pthread_mutex_unlock(mutex);
+}
+static inline int loggerWebConditionInit(LoggerWebCondition* condition) {
+    return pthread_cond_init(condition, NULL) == 0;
+}
+static inline void loggerWebConditionDestroy(LoggerWebCondition* condition) {
+    pthread_cond_destroy(condition);
+}
+static inline void loggerWebConditionWait(LoggerWebCondition* condition,
+                                          LoggerWebMutex* mutex) {
+    pthread_cond_wait(condition, mutex);
+}
+static inline void loggerWebConditionWakeAll(LoggerWebCondition* condition) {
+    pthread_cond_broadcast(condition);
 }
 #endif
 
@@ -133,6 +175,11 @@ typedef struct {
     LoggerWebThread thread;
     int thread_started;
     volatile int stop_requested;
+    LoggerWebMutex client_mutex;
+    LoggerWebCondition clients_done;
+    LoggerWebMutex today_control_mutex;
+    size_t active_client_count;
+    int request_sync_initialized;
     size_t log_row_limit;
     char* title;
     char** column_headers;
@@ -180,7 +227,7 @@ int loggerWebStartServer(LoggerWebServer* server,
                          const char* bind_address,
                          unsigned short port);
 void loggerWebStopServer(LoggerWebServer* server);
-void loggerWebHandleClient(PortableSocket client_fd, const LoggerWebServer* server);
+void loggerWebHandleClient(PortableSocket client_fd, LoggerWebServer* server);
 int loggerWebRootDirectoryEquals(const LoggerWebServer* server, const char* subdirectory);
 
 // Response and escaping helpers.
@@ -258,7 +305,7 @@ void loggerWebSendGraphData(PortableSocket client_fd,
 int loggerWebShouldShowTodayPanel(const LoggerWebServer* server, int is_root);
 void loggerWebSendTodayPanel(PortableSocket client_fd, const LoggerWebServer* server);
 void loggerWebHandleTodayControl(PortableSocket client_fd,
-                                 const LoggerWebServer* server,
+                                 LoggerWebServer* server,
                                  const char* action);
 void loggerWebWriteTodayJson(PortableSocket client_fd, const LoggerWebServer* server);
 
