@@ -45,6 +45,9 @@ int loggerWebInsertGraphSeries(const char* title,
                                const char* x_column,
                                const char* const* y_columns,
                                size_t y_column_count);
+int loggerWebSetGraphSeriesColor(const char* graph_title,
+                                 const char* series_name,
+                                 const char* color);
 int loggerWebShowStats(int enabled);
 int loggerWebShowRefreshButton(int enabled);
 int loggerWebShowVerts(const char* graph_title,

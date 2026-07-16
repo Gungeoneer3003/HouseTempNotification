@@ -62,16 +62,28 @@ void appStartLoggerWebOnPort(const AppConfig* config, unsigned short port)
     };
 
     if (loggerWebStartWithConfig(&logger_web_config)) {
-        loggerWebInsertGraphSeries("Temperature Overlay",
+
+        char* firstGraph = "Temperature Overlay";
+        char* secondGraph = "Power";
+
+        loggerWebInsertGraphSeries(firstGraph,
                                    "Time",
                                    logger_web_temperature_graph_columns,
                                    sizeof(logger_web_temperature_graph_columns) /
                                        sizeof(logger_web_temperature_graph_columns[0]));
-        loggerWebShowStats(1);
+        loggerWebShowVerts(firstGraph, "Event", "open notif", "#1a1a8b");
+        loggerWebShowVerts(firstGraph, "Event", "close notif", "#8b1a1a");
+        loggerWebShowSpan(firstGraph, "Event", "open notif", "close notif", "#176e74");
 
-        loggerWebShowVerts("Temperature Overlay", "Event", "open notif", "#1a1a8b");
-        loggerWebShowVerts("Temperature Overlay", "Event", "close notif", "#8b1a1a");
-        loggerWebShowSpan("Temperature Overlay", "Event", "open notif", "close notif", "#176e74");
+        loggerWebInsertGraph(secondGraph,
+                                   "Time",
+                                   "Fan Speed");
+        loggerWebSetGraphSeriesColor(secondGraph, "Fan Speed", "#38bdf8");
+        loggerWebShowVerts(secondGraph, "Event", "open notif", "#1a1a8b");
+        loggerWebShowVerts(secondGraph, "Event", "close notif", "#8b1a1a");
+        loggerWebShowSpan(secondGraph, "Event", "open notif", "close notif", "#176e74");
+
+        loggerWebShowStats(1);
 
         webControlsConfigureToday(config);
         loggerWebSetRootDirectory("graphs");
@@ -83,7 +95,7 @@ void appStartLoggerWebOnPort(const AppConfig* config, unsigned short port)
 
         // The Airscape controller lives outside this web app, so render it as a plain link.
         loggerWebAddNavLink("Airscape", config->house_link, 0);
-        //loggerWebAddNavLink("Surprise Me", "https://www.youtube.com/watch?v=dQw4w9WgXcQ", 0);
+        loggerWebAddNavLink("Surprise Me", "https://www.youtube.com/watch?v=dQw4w9WgXcQ", 0);
     }
 #else
     (void)config;

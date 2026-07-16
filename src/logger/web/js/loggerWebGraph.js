@@ -393,8 +393,8 @@
                     label: point.x || formatGraphDateTime(point.time)
                 };
             }),
-            borderColor: colorForSeries(seriesIndex),
-            backgroundColor: transparentColor(colorForSeries(seriesIndex), 0.12),
+            borderColor: colorForGraphSeries(series, seriesIndex),
+            backgroundColor: transparentColor(colorForGraphSeries(series, seriesIndex), 0.12),
             borderWidth: 2.75,
             cubicInterpolationMode: "default",
             tension: 0.48,
@@ -521,7 +521,7 @@
         stats.series.forEach((item, index) => {
             const card = document.createElement("div");
             card.className = "stat-card";
-            card.style.borderColor = transparentColor(colorForSeries(index), 0.56);
+            card.style.borderColor = transparentColor(colorForGraphSeries(item, index), 0.56);
 
             const name = document.createElement("div");
             name.className = "stat-name";
@@ -789,6 +789,12 @@
 
     function colorForSeries(index) {
         return colors[index % colors.length];
+    }
+
+    function colorForGraphSeries(series, index) {
+        return series && typeof series.color === "string" && /^#[0-9a-fA-F]{6}$/.test(series.color)
+            ? series.color
+            : colorForSeries(index);
     }
 
     function transparentColor(hex, alpha) {

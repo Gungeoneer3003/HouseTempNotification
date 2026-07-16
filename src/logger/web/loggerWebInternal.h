@@ -78,6 +78,7 @@ static inline void loggerWebMutexUnlock(LoggerWebMutex* mutex) {
 
 typedef struct {
     char* name;
+    char* color;
     size_t index;
 } LoggerWebGraphSeries;
 

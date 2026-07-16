@@ -128,7 +128,13 @@ static void writeGraphJson(PortableSocket client_fd,
 
         loggerWebSendAll(client_fd, "{\"name\":\"");
         loggerWebSendJsonEscaped(client_fd, graph->series[i].name);
-        loggerWebSendAll(client_fd, "\"}");
+        loggerWebSendAll(client_fd, "\"");
+        if (graph->series[i].color && graph->series[i].color[0]) {
+            loggerWebSendAll(client_fd, ",\"color\":\"");
+            loggerWebSendJsonEscaped(client_fd, graph->series[i].color);
+            loggerWebSendAll(client_fd, "\"");
+        }
+        loggerWebSendAll(client_fd, "}");
     }
 
     loggerWebSendAll(client_fd, "],\"points\":[");
@@ -377,6 +383,12 @@ static void writeGraphStatsJson(PortableSocket client_fd,
             loggerWebSendAll(client_fd, number);
         } else {
             loggerWebSendAll(client_fd, "null");
+        }
+
+        if (graph->series[i].color && graph->series[i].color[0]) {
+            loggerWebSendAll(client_fd, ",\"color\":\"");
+            loggerWebSendJsonEscaped(client_fd, graph->series[i].color);
+            loggerWebSendAll(client_fd, "\"");
         }
 
         loggerWebSendAll(client_fd, "}");

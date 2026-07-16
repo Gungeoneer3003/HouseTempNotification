@@ -118,6 +118,45 @@ int loggerWebInsertGraphSeries(const char* title,
     return 1;
 }
 
+int loggerWebSetGraphSeriesColor(const char* graph_title,
+                                 const char* series_name,
+                                 const char* color) {
+    if (!graph_title || !*graph_title || !series_name || !*series_name || !color || !*color) {
+        return 0;
+    }
+
+    loggerWebMutexLock(&active_server_mutex);
+    LoggerWebServer* server = active_server;
+    if (!server) {
+        loggerWebMutexUnlock(&active_server_mutex);
+        return 0;
+    }
+
+    LoggerWebGraph* graph = findGraphByTitle(server, graph_title);
+    if (!graph) {
+        loggerWebMutexUnlock(&active_server_mutex);
+        return 0;
+    }
+
+    for (size_t i = 0; i < graph->series_count; i++) {
+        if (loggerWebStringEqualsIgnoreCase(graph->series[i].name, series_name)) {
+            char* next_color = loggerWebCopyString(color);
+            if (!next_color) {
+                loggerWebMutexUnlock(&active_server_mutex);
+                return 0;
+            }
+
+            free(graph->series[i].color);
+            graph->series[i].color = next_color;
+            loggerWebMutexUnlock(&active_server_mutex);
+            return 1;
+        }
+    }
+
+    loggerWebMutexUnlock(&active_server_mutex);
+    return 0;
+}
+
 //Set whether to show statistics on the graphs page
 int loggerWebShowStats(int enabled) {
     loggerWebMutexLock(&active_server_mutex);
@@ -255,6 +294,7 @@ static void freeGraph(LoggerWebGraph* graph) {
     if (graph->series) {
         for (size_t i = 0; i < graph->series_count; i++) {
             free(graph->series[i].name);
+            free(graph->series[i].color);
         }
     }
 
