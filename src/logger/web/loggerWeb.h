@@ -53,6 +53,7 @@ int loggerWebShowRefreshButton(int enabled);
 int loggerWebShowVerts(const char* graph_title,
                        const char* column,
                        const char* value,
+                       const char* label,
                        const char* color);
 int loggerWebShowSpan(const char* graph_title,
                       const char* column,

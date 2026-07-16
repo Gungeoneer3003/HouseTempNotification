@@ -71,16 +71,32 @@ void appStartLoggerWebOnPort(const AppConfig* config, unsigned short port)
                                    logger_web_temperature_graph_columns,
                                    sizeof(logger_web_temperature_graph_columns) /
                                        sizeof(logger_web_temperature_graph_columns[0]));
-        loggerWebShowVerts(firstGraph, "Event", "open notif", "#1a1a8b");
-        loggerWebShowVerts(firstGraph, "Event", "close notif", "#8b1a1a");
+        loggerWebShowVerts(firstGraph,
+                           "Event",
+                           "open notif",
+                           "Open",
+                           "#1a1a8b");
+        loggerWebShowVerts(firstGraph,
+                           "Event",
+                           "close notif",
+                           "Close",
+                           "#8b1a1a");
         loggerWebShowSpan(firstGraph, "Event", "open notif", "close notif", "#176e74");
 
         loggerWebInsertGraph(secondGraph,
                                    "Time",
                                    "Fan Speed");
         loggerWebSetGraphSeriesColor(secondGraph, "Fan Speed", "#38bdf8");
-        loggerWebShowVerts(secondGraph, "Event", "open notif", "#1a1a8b");
-        loggerWebShowVerts(secondGraph, "Event", "close notif", "#8b1a1a");
+        loggerWebShowVerts(secondGraph,
+                           "Event",
+                           "open notif",
+                           "Open",
+                           "#1a1a8b");
+        loggerWebShowVerts(secondGraph,
+                           "Event",
+                           "close notif",
+                           "Close",
+                           "#8b1a1a");
         loggerWebShowSpan(secondGraph, "Event", "open notif", "close notif", "#176e74");
 
         loggerWebShowStats(1);

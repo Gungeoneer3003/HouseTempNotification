@@ -434,11 +434,29 @@
                         spans: Array.isArray(graph.spans) ? graph.spans : []
                     },
                     legend: {
+                        onClick: function (event, legendItem, legend) {
+                            const datasetIndex = legendItem.datasetIndex;
+                            if (!Number.isInteger(datasetIndex)) {
+                                return;
+                            }
+
+                            const legendChart = legend.chart;
+                            legendChart.setDatasetVisibility(
+                                datasetIndex,
+                                !legendChart.isDatasetVisible(datasetIndex)
+                            );
+                            legendChart.update();
+                        },
                         labels: {
                             color: "#cbd5e1",
                             usePointStyle: true,
                             boxWidth: 8,
-                            boxHeight: 8
+                            boxHeight: 8,
+                            generateLabels: function (legendChart) {
+                                const seriesLabels = Chart.defaults.plugins.legend.labels
+                                    .generateLabels(legendChart);
+                                return seriesLabels.concat(eventMarkerLegendItems(graph));
+                            }
                         }
                     },
                     tooltip: {
@@ -500,6 +518,28 @@
         });
 
         charts.push(chart);
+    }
+
+    function eventMarkerLegendItems(graph) {
+        const markers = graph && Array.isArray(graph.eventMarkers)
+            ? graph.eventMarkers
+            : [];
+
+        return markers.filter(function (marker) {
+            return marker && typeof marker.label === "string" && marker.label.length > 0;
+        }).map(function (marker) {
+            const color = typeof marker.color === "string" ? marker.color : "#ef4444";
+            return {
+                text: marker.label,
+                fillStyle: color,
+                strokeStyle: color,
+                lineWidth: 2,
+                lineDash: [5, 5],
+                pointStyle: "line",
+                rotation: 90,
+                hidden: false
+            };
+        });
     }
 
     function createStatsBox(graph) {

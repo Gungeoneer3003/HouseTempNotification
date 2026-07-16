@@ -18,6 +18,7 @@ static int appendGraphVert(LoggerWebGraph* graph,
                            const char* column,
                            size_t column_index,
                            const char* value,
+                           const char* label,
                            const char* color);
 static int appendGraphSpan(LoggerWebGraph* graph,
                            const char* column,
@@ -175,9 +176,11 @@ int loggerWebShowStats(int enabled) {
 int loggerWebShowVerts(const char* graph_title,
                        const char* column,
                        const char* value,
+                       const char* label,
                        const char* color) {
     //Validate the input parameters
-    if (!graph_title || !*graph_title || !column || !*column || !value || !*value) {
+    if (!graph_title || !*graph_title || !column || !*column ||
+        !value || !*value || !label || !*label) {
         return 0;
     }
 
@@ -202,6 +205,7 @@ int loggerWebShowVerts(const char* graph_title,
                              column,
                              column_index,
                              value,
+                             label,
                              color && *color ? color : "#ef4444");
 
     loggerWebMutexUnlock(&active_server_mutex);
@@ -305,6 +309,7 @@ static void freeGraph(LoggerWebGraph* graph) {
         for (size_t i = 0; i < graph->vert_count; i++) {
             free(graph->verts[i].column);
             free(graph->verts[i].value);
+            free(graph->verts[i].label);
             free(graph->verts[i].color);
         }
     }
@@ -349,6 +354,7 @@ static int appendGraphVert(LoggerWebGraph* graph,
                            const char* column,
                            size_t column_index,
                            const char* value,
+                           const char* label,
                            const char* color) {
     //Check if the graph has enough capacity to accommodate the new vertical line
     if (graph->vert_count == graph->vert_capacity) {
@@ -367,13 +373,15 @@ static int appendGraphVert(LoggerWebGraph* graph,
     memset(vert, 0, sizeof(*vert));
     vert->column = loggerWebCopyString(column);
     vert->value = loggerWebCopyString(value);
+    vert->label = loggerWebCopyString(label);
     vert->color = loggerWebCopyString(color);
     vert->column_index = column_index;
 
     //Check if any of the allocations for the vertical line failed
-    if (!vert->column || !vert->value || !vert->color) {
+    if (!vert->column || !vert->value || !vert->label || !vert->color) {
         free(vert->column);
         free(vert->value);
+        free(vert->label);
         free(vert->color);
         memset(vert, 0, sizeof(*vert));
         return 0;

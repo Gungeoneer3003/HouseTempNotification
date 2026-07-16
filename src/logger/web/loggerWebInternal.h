@@ -85,6 +85,7 @@ typedef struct {
 typedef struct {
     char* column;
     char* value;
+    char* label;
     char* color;
     size_t column_index;
 } LoggerWebVert;

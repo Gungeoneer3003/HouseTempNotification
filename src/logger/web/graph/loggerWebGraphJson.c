@@ -29,6 +29,8 @@ static void writeGraphPointsJson(PortableSocket client_fd,
 static void writeGraphStatsJson(PortableSocket client_fd,
                                 const LoggerWebServer* server,
                                 const LoggerWebGraph* graph);
+static void writeGraphEventMarkersJson(PortableSocket client_fd,
+                                       const LoggerWebGraph* graph);
 static void writeGraphEventsJson(PortableSocket client_fd,
                                  const LoggerWebServer* server,
                                  const LoggerWebGraph* graph,
@@ -141,11 +143,30 @@ static void writeGraphJson(PortableSocket client_fd,
     writeGraphPointsJson(client_fd, server, graph, range_start, range_end);
     loggerWebSendAll(client_fd, "],\"stats\":");
     writeGraphStatsJson(client_fd, server, graph);
-    loggerWebSendAll(client_fd, ",\"events\":[");
+    loggerWebSendAll(client_fd, ",\"eventMarkers\":[");
+    writeGraphEventMarkersJson(client_fd, graph);
+    loggerWebSendAll(client_fd, "],\"events\":[");
     writeGraphEventsJson(client_fd, server, graph, range_start, range_end);
     loggerWebSendAll(client_fd, "],\"spans\":[");
     writeGraphSpansJson(client_fd, server, graph, range_start, range_end);
     loggerWebSendAll(client_fd, "]}");
+}
+
+//Write the configured marker labels independently of matching events so the
+//legend remains useful even when the selected range contains no event lines.
+static void writeGraphEventMarkersJson(PortableSocket client_fd,
+                                       const LoggerWebGraph* graph) {
+    for (size_t i = 0; i < graph->vert_count; i++) {
+        if (i > 0) {
+            loggerWebSendAll(client_fd, ",");
+        }
+
+        loggerWebSendAll(client_fd, "{\"label\":\"");
+        loggerWebSendJsonEscaped(client_fd, graph->verts[i].label);
+        loggerWebSendAll(client_fd, "\",\"color\":\"");
+        loggerWebSendJsonEscaped(client_fd, graph->verts[i].color);
+        loggerWebSendAll(client_fd, "\"}");
+    }
 }
 
 //Write the graph points in JSON format for the specified graph and range
@@ -456,7 +477,7 @@ static void writeGraphEventsJson(PortableSocket client_fd,
             snprintf(time_text, sizeof(time_text), "%lld", (long long)record.logged_at);
             loggerWebSendAll(client_fd, time_text);
             loggerWebSendAll(client_fd, ",\"label\":\"");
-            loggerWebSendJsonEscaped(client_fd, graph->verts[i].value);
+            loggerWebSendJsonEscaped(client_fd, graph->verts[i].label);
             loggerWebSendAll(client_fd, "\",\"color\":\"");
             loggerWebSendJsonEscaped(client_fd, graph->verts[i].color);
             loggerWebSendAll(client_fd, "\"}");
