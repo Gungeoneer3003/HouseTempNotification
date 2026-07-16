@@ -59,11 +59,6 @@
 #define LOGGER_WEB_FAN_POWER_ON_SECONDS 10
 #endif
 
-// Extra sensor checks allowed after the initial power-on wait.
-#ifndef LOGGER_WEB_FAN_POWER_ON_POLL_COUNT
-#define LOGGER_WEB_FAN_POWER_ON_POLL_COUNT 5
-#endif
-
 // When web page loads should poll and log a fresh sensor reading.
 // 0 = don't update, 1 = update only if the root page is accessed, 2 = update if any page is accessed.
 #ifndef LOGGER_WEB_POLL_ON_ACCESS
