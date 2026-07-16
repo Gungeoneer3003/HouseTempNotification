@@ -66,6 +66,7 @@ add_executable(test_logger_web
     src/logApp/app_startup.c
     src/logApp/web_controls.c
     src/house/config.c
+    src/house/rec.c
     src/portable/portable.c
 )
 target_include_directories(test_logger_web PRIVATE ${PROJECT_INCLUDE_DIRS})

@@ -184,10 +184,21 @@
     }
 
     function renderTodayReadings(parent, today) {
+        const header = document.createElement("div");
+        header.className = "today-header";
+
         const heading = document.createElement("div");
         heading.className = "today-heading";
         heading.textContent = "Current readings";
-        parent.appendChild(heading);
+        header.appendChild(heading);
+
+        if (typeof today.status === "string" && today.status.length > 0) {
+            const status = document.createElement("div");
+            status.className = "today-status";
+            status.textContent = `Status: ${today.status}`;
+            header.appendChild(status);
+        }
+        parent.appendChild(header);
 
         const readings = document.createElement("div");
         readings.className = "today-readings";

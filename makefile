@@ -26,7 +26,7 @@ TEST_SRC = tests/test_core.c $(JSON_DIR)/jsonUtils.c $(HOUSE_DIR)/rec.c
 NOTIFY_TEST_TARGET = test_notification
 NOTIFY_TEST_SRC = tests/test_notification.c $(HOUSE_DIR)/config.c $(HOUSE_DIR)/houseApi.c $(HTTP_DIR)/httpClient.c $(JSON_DIR)/jsonUtils.c $(PORTABLE_DIR)/portable.c
 LOGGER_WEB_TEST_TARGET = test_logger_web
-LOGGER_WEB_TEST_SRC = tests/test_logger_web.c $(LOG_APP_DIR)/app_startup.c $(LOG_APP_DIR)/web_controls.c $(HOUSE_DIR)/config.c $(LOGGER_DIR)/logger.c $(LOGGER_WEB_SRC) $(PORTABLE_DIR)/portable.c
+LOGGER_WEB_TEST_SRC = tests/test_logger_web.c $(LOG_APP_DIR)/app_startup.c $(LOG_APP_DIR)/web_controls.c $(HOUSE_DIR)/config.c $(HOUSE_DIR)/rec.c $(LOGGER_DIR)/logger.c $(LOGGER_WEB_SRC) $(PORTABLE_DIR)/portable.c
 LOGGER_WEB_TEST_CFLAGS = $(CFLAGS) -DLOGGER_WEB_BIND_ADDRESS='"127.0.0.1"' -DLOGGER_WEB_ENABLE_CONTROLS=0 -DLOGGER_WEB_SHOW_CONTROLS=1 -DLOGGER_WEB_POLL_ON_ACCESS=0
 CC = gcc
 CFLAGS = -g -std=c11 -Wall -Wextra -Wpedantic $(addprefix -I,$(MODULE_DIRS))

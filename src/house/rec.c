@@ -77,3 +77,16 @@ int withinWindow(Rec rec, time_t now) {
     
     return 1;
 }
+
+//Describe the current recommendation without applying notification timing or
+//dispatch policy. This keeps the web status informational only.
+const char* getCurrentStatus(int house, int outside_air, int speed) {
+    switch (getRec(house, outside_air, speed)) {
+        case REC_OPEN:
+            return "Cooler out than in - Open windows";
+        case REC_CLOSE:
+            return "Hotter out than in - Close windows";
+        default:
+            return "All clear - no action needed";
+    }
+}

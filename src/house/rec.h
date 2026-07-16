@@ -11,6 +11,7 @@ typedef enum {
 
 Rec getRec(int house, int outside_air, int speed);
 const char* getRecName(Rec rec);
+const char* getCurrentStatus(int house, int outside_air, int speed);
 long secUntilWindow(Rec rec, time_t now);
 int withinWindow(Rec rec, time_t now);
 

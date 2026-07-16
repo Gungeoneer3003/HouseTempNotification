@@ -321,6 +321,24 @@ tr:last-child td {
     min-width: 0;
 }
 
+.today-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.today-status {
+    padding: 5px 9px;
+    color: #dbeafe;
+    background: #0b1220;
+    border: 1px solid #334155;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 700;
+}
+
 .is-hidden {
     display: none !important;
 }

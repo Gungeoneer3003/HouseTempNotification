@@ -10,6 +10,7 @@
 
 #define LOGGER_WEB_TODAY_MAX_COLUMNS 16
 #define LOGGER_WEB_TODAY_NAME_SIZE 128
+#define LOGGER_WEB_TODAY_STATUS_SIZE 128
 
 typedef struct {
     char names[LOGGER_WEB_TODAY_MAX_COLUMNS][LOGGER_WEB_TODAY_NAME_SIZE];
@@ -19,6 +20,11 @@ typedef struct {
     int has_fan_speed;
     int fan_power_on;
     int has_fan_power;
+    int status_inside;
+    int status_outside;
+    int status_fan_speed;
+    int has_status_reading;
+    char status[LOGGER_WEB_TODAY_STATUS_SIZE];
     char latest_time[128];
 } LoggerWebTodaySnapshot;
 
@@ -111,6 +117,43 @@ int loggerWebSetTodayControls(const LoggerWebTodayControls* controls) {
     return 1;
 }
 
+int loggerWebSetTodayStatus(const char* inside_column,
+                            const char* outside_column,
+                            LoggerWebTodayStatusProvider provider,
+                            void* user) {
+    loggerWebMutexLock(&active_server_mutex);
+    LoggerWebServer* server = active_server;
+    if (!server) {
+        loggerWebMutexUnlock(&active_server_mutex);
+        return 0;
+    }
+
+    if (!provider) {
+        server->today_status_provider = NULL;
+        server->today_status_user = NULL;
+        server->today_status_inside_index = 0;
+        server->today_status_outside_index = 0;
+        loggerWebMutexUnlock(&active_server_mutex);
+        return 1;
+    }
+
+    size_t inside_index = 0;
+    size_t outside_index = 0;
+    if (!inside_column || !*inside_column || !outside_column || !*outside_column ||
+        !loggerWebResolveColumnIndex(server, inside_column, &inside_index) ||
+        !loggerWebResolveColumnIndex(server, outside_column, &outside_index)) {
+        loggerWebMutexUnlock(&active_server_mutex);
+        return 0;
+    }
+
+    server->today_status_inside_index = inside_index;
+    server->today_status_outside_index = outside_index;
+    server->today_status_provider = provider;
+    server->today_status_user = user;
+    loggerWebMutexUnlock(&active_server_mutex);
+    return 1;
+}
+
 void loggerWebFreeTodayColumns(LoggerWebServer* server) {
     if (!server) {
         return;
@@ -120,6 +163,8 @@ void loggerWebFreeTodayColumns(LoggerWebServer* server) {
     server->today_columns = NULL;
     server->today_column_count = 0;
     server->show_today_controls = 0;
+    server->today_status_provider = NULL;
+    server->today_status_user = NULL;
 }
 
 int loggerWebShouldShowTodayPanel(const LoggerWebServer* server, int is_root) {
@@ -214,6 +259,9 @@ static int readTodaySnapshot(const LoggerWebServer* server, LoggerWebTodaySnapsh
             int row_has_value[LOGGER_WEB_TODAY_MAX_COLUMNS] = {0};
             double row_fan_speed = 0.0;
             int row_has_fan_speed = 0;
+            double row_status_inside = 0.0;
+            double row_status_outside = 0.0;
+            int row_has_status_reading = 0;
 
             for (size_t i = 0; i < server->today_column_count; i++) {
                 const char* field = loggerWebFieldForColumn(
@@ -229,6 +277,16 @@ static int readTodaySnapshot(const LoggerWebServer* server, LoggerWebTodaySnapsh
                 loggerWebParseDouble(loggerWebFieldForColumn(&record, fan_speed_index),
                                      &row_fan_speed)) {
                 row_has_fan_speed = 1;
+            }
+
+            if (server->today_status_provider && row_has_fan_speed &&
+                loggerWebParseDouble(
+                    loggerWebFieldForColumn(&record, server->today_status_inside_index),
+                    &row_status_inside) &&
+                loggerWebParseDouble(
+                    loggerWebFieldForColumn(&record, server->today_status_outside_index),
+                    &row_status_outside)) {
+                row_has_status_reading = 1;
             }
 
             if (!any_value && !row_has_fan_speed) {
@@ -250,6 +308,13 @@ static int readTodaySnapshot(const LoggerWebServer* server, LoggerWebTodaySnapsh
                 snapshot->has_fan_power = 1;
             }
 
+            if (row_has_status_reading) {
+                snapshot->status_inside = (int)row_status_inside;
+                snapshot->status_outside = (int)row_status_outside;
+                snapshot->status_fan_speed = (int)row_fan_speed;
+                snapshot->has_status_reading = 1;
+            }
+
             if (record.has_logged_at) {
                 loggerWebFormatUnixTime(record.logged_at,
                                         snapshot->latest_time,
@@ -260,13 +325,30 @@ static int readTodaySnapshot(const LoggerWebServer* server, LoggerWebTodaySnapsh
         fclose(file);
     }
 
+    if (server->today_status_provider && snapshot->has_status_reading) {
+        const char* status = server->today_status_provider(snapshot->status_inside,
+                                                           snapshot->status_outside,
+                                                           snapshot->status_fan_speed,
+                                                           server->today_status_user);
+        if (status) {
+            snprintf(snapshot->status, sizeof(snapshot->status), "%s", status);
+        }
+    }
+
     return 1;
 }
 
 static void sendTodayReadings(PortableSocket client_fd,
                               const LoggerWebTodaySnapshot* snapshot,
                               size_t column_count) {
+    loggerWebSendAll(client_fd, "<div class=\"today-header\">");
     loggerWebSendAll(client_fd, "<div class=\"today-heading\">Current readings</div>");
+    if (snapshot->status[0]) {
+        loggerWebSendAll(client_fd, "<div class=\"today-status\">Status: ");
+        loggerWebSendEscaped(client_fd, snapshot->status);
+        loggerWebSendAll(client_fd, "</div>");
+    }
+    loggerWebSendAll(client_fd, "</div>");
     loggerWebSendAll(client_fd, "<div class=\"today-readings\">");
     for (size_t i = 0; i < column_count; i++) {
         loggerWebSendAll(client_fd, "<div class=\"today-reading\"><span class=\"today-label\">");
@@ -446,7 +528,15 @@ void loggerWebWriteTodayJson(PortableSocket client_fd, const LoggerWebServer* se
 
     loggerWebSendAll(client_fd, "{\"time\":\"");
     loggerWebSendJsonEscaped(client_fd, snapshot.latest_time);
-    loggerWebSendAll(client_fd, "\",\"columns\":[");
+    loggerWebSendAll(client_fd, "\",\"status\":");
+    if (snapshot.status[0]) {
+        loggerWebSendAll(client_fd, "\"");
+        loggerWebSendJsonEscaped(client_fd, snapshot.status);
+        loggerWebSendAll(client_fd, "\"");
+    } else {
+        loggerWebSendAll(client_fd, "null");
+    }
+    loggerWebSendAll(client_fd, ",\"columns\":[");
     for (size_t i = 0; i < server->today_column_count; i++) {
         if (i > 0) {
             loggerWebSendAll(client_fd, ",");

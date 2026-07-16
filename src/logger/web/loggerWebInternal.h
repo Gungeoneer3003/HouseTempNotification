@@ -144,6 +144,10 @@ typedef struct {
     int show_refresh_button;
     int show_today_on_other_pages;
     int show_today_controls;
+    size_t today_status_inside_index;
+    size_t today_status_outside_index;
+    LoggerWebTodayStatusProvider today_status_provider;
+    void* today_status_user;
     LoggerWebTodayControls today_controls;
     LoggerWebTodayColumn* today_columns;
     size_t today_column_count;

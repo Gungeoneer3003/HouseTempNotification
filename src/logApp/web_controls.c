@@ -14,6 +14,13 @@
 #define LOGGER_WEB_SHOW_CONTROLS LOGGER_WEB_ENABLE_CONTROLS
 #endif
 
+#if LOGGER_WEB_PORT > 0
+static const char* loggerWebTodayStatus(int inside,
+                                        int outside,
+                                        int fan_speed,
+                                        void* user);
+#endif
+
 #if LOGGER_WEB_PORT > 0 && LOGGER_WEB_ENABLE_CONTROLS
 typedef int (*LoggerWebFanCommand)(const AppConfig* config);
 
@@ -48,6 +55,7 @@ void webControlsConfigureToday(const AppConfig* config)
                        sizeof(logger_web_today_columns) / sizeof(logger_web_today_columns[0]),
                        1,
                        LOGGER_WEB_SHOW_CONTROLS);
+    loggerWebSetTodayStatus("Inside", "Outside", loggerWebTodayStatus, NULL);
 
 #if LOGGER_WEB_ENABLE_CONTROLS
     // Wire each web fan button to its matching house API endpoint.
@@ -64,6 +72,17 @@ void webControlsConfigureToday(const AppConfig* config)
     (void)config;
 #endif
 }
+
+#if LOGGER_WEB_PORT > 0
+static const char* loggerWebTodayStatus(int inside,
+                                        int outside,
+                                        int fan_speed,
+                                        void* user)
+{
+    (void)user;
+    return getCurrentStatus(inside, outside, fan_speed);
+}
+#endif
 
 #if LOGGER_WEB_PORT > 0 && LOGGER_WEB_ENABLE_CONTROLS
 static int loggerWebFanSpeedUp(void* arg)

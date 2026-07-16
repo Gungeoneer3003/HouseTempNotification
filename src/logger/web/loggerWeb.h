@@ -25,6 +25,10 @@ typedef struct {
     void* user;
 } LoggerWebTodayControls;
 
+typedef const char* (*LoggerWebTodayStatusProvider)(int inside,
+                                                    int outside,
+                                                    int fan_speed,
+                                                    void* user);
 typedef int (*LoggerWebAccessPoller)(void* user);
 
 int loggerWebStart(const char* log_path,
@@ -64,6 +68,10 @@ int loggerWebShowToday(const char* const* columns,
                        size_t column_count,
                        int show_on_other_pages,
                        int show_controls);
+int loggerWebSetTodayStatus(const char* inside_column,
+                            const char* outside_column,
+                            LoggerWebTodayStatusProvider provider,
+                            void* user);
 // Pass NULL to clear any Today panel control callbacks.
 int loggerWebSetTodayControls(const LoggerWebTodayControls* controls);
 

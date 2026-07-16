@@ -15,6 +15,7 @@
         }
 
         const controls = button.closest(".today-controls");
+        const todayPanel = button.closest("#today");
         const previousState = readTodayControlState(controls);
         controlRequestInFlight = true;
         setTodayControlsDisabled(controls, true);
@@ -39,6 +40,7 @@
                 speed: Number(snapshot.controls.fanSpeed),
                 powerOn: !!snapshot.controls.fanPowerOn
             });
+            writeTodayStatus(todayPanel, snapshot.status);
         } catch (error) {
             writeTodayControlState(controls, previousState);
             button.classList.add("today-control-error");
@@ -50,6 +52,17 @@
             setTodayControlsDisabled(controls, false);
         }
     });
+
+    function writeTodayStatus(todayPanel, status) {
+        if (!todayPanel || typeof status !== "string" || status.length === 0) {
+            return;
+        }
+
+        const statusBox = todayPanel.querySelector(".today-status");
+        if (statusBox) {
+            statusBox.textContent = `Status: ${status}`;
+        }
+    }
 
     function setTodayControlsDisabled(controls, disabled) {
         if (!controls) {

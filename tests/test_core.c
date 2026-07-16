@@ -26,6 +26,12 @@ static void testRecommendations(void) {
 
     assert(strcmp(getRecName(REC_OPEN), "open") == 0);
     assert(strcmp(getRecName(REC_CLOSE), "close") == 0);
+    assert(strcmp(getCurrentStatus(75, 75 - MARGIN, 0),
+                  "Cooler out than in - Open windows") == 0);
+    assert(strcmp(getCurrentStatus(70, 70 + MARGIN, 1),
+                  "Hotter out than in - Close windows") == 0);
+    assert(strcmp(getCurrentStatus(70, 70 + MARGIN - 1, 1),
+                  "All clear - no action needed") == 0);
     assert(strcmp(getRecName(REC_NONE), "none") == 0);
 
     assert(withinWindow(REC_OPEN, localTimeAtHour(ALLOW_OPEN_AFTER_HOUR)));
