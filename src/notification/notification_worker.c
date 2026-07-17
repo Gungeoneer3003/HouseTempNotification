@@ -144,10 +144,10 @@ static void sendNotification(const NotificationJob* job)
     char msg[256];
     int fanOffOk = 1;
 
-    // Close recommendations still try to turn off the fans before notifying.
-    // When this program successfully shuts them off, log a distinct graph event
-    // so the web app can mark the automatic fan shutoff separately from notices.
-    if (job->rec == REC_CLOSE)
+    // Close recommendations are no longer based on fan speed, but the action
+    // should only issue a fan-off command when the reading says fans are on.
+    // Successful program shutoffs get their own graph marker event.
+    if (job->rec == REC_CLOSE && job->reading.speed > 0)
     {
         fanOffOk = houseTurnOffFans(notification_config);
         if (fanOffOk) {

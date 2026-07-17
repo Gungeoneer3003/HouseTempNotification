@@ -16,7 +16,6 @@ static void logReadingEvent(const AppConfig* config,
                             Rec rec,
                             const char* event,
                             const char* detail);
-static const char* ignoredWindowEvent(Rec rec);
 
 int pollerLogCurrentReading(const AppConfig* config, const char* event, const char* detail)
 {
@@ -30,7 +29,7 @@ int pollerLogCurrentReading(const AppConfig* config, const char* event, const ch
     }
 
     // Web-triggered polls refresh Today data without running notification policy.
-    Rec currentRec = getRec(currentReading.house, currentReading.outside_air, currentReading.speed);
+    Rec currentRec = getRecForTime(currentReading.house, currentReading.outside_air, time(NULL));
     logReadingEvent(config,
                     &currentReading,
                     currentRec,
@@ -63,19 +62,9 @@ void pollerRun(const AppConfig* config)
             continue;
         }
 
-        Rec currentRec = getRec(currentReading.house, currentReading.outside_air, currentReading.speed);
-
-        // Recommendations outside their allowed window are recorded but not queued.
-        if (currentRec != REC_NONE && !withinWindow(currentRec, currentNow))
-        {
-            logReadingEvent(config,
-                            &currentReading,
-                            currentRec,
-                            ignoredWindowEvent(currentRec),
-                            "outside notification window");
-            portableSleepSeconds(POLL_INTERVAL_SECONDS);
-            continue;
-        }
+        Rec currentRec = getRecForTime(currentReading.house,
+                                       currentReading.outside_air,
+                                       currentNow);
 
         int notificationQueued = 0;
         if (currentRec != REC_NONE)
@@ -145,10 +134,4 @@ static void logReadingEvent(const AppConfig* config,
     logger_log_fields(config ? config->logger : NULL,
                       fields,
                       sizeof(fields) / sizeof(fields[0]));
-}
-
-static const char* ignoredWindowEvent(Rec rec)
-{
-    // Preserve the existing event names so old log filters continue to match.
-    return rec == REC_CLOSE ? "Ignoring close" : "Ignoring open";
 }

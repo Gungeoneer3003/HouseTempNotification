@@ -1,19 +1,30 @@
 #include "rec.h"
 #include "settings.h"
 
-//Get the recommendation based on house, outside air, and power status
-Rec getRec(int house, int outside_air, int speed) {
+// Recommendation policy is based only on temperature difference and the local
+// time window. Fan speed is intentionally not part of the decision so the web
+// status and logged recommendation describe what should happen, not what the fan
+// is currently doing.
+Rec getRecForTime(int house, int outside_air, time_t now) {
     int diff = outside_air - house;
 
-    if (!speed && diff <= -MARGIN) {
+    if (diff <= -MARGIN && withinWindow(REC_OPEN, now)) {
         return REC_OPEN;
     }
 
-    if (speed && diff >= MARGIN) {
+    if (diff >= MARGIN && withinWindow(REC_CLOSE, now)) {
         return REC_CLOSE;
     }
 
     return REC_NONE;
+}
+
+// Backward-compatible wrapper for older call sites. The speed parameter is
+// ignored by design; new code that already has a timestamp should call
+// getRecForTime so one polling cycle uses one consistent time value.
+Rec getRec(int house, int outside_air, int speed) {
+    (void)speed;
+    return getRecForTime(house, outside_air, time(NULL));
 }
 
 //Get the string representation of a recommendation
@@ -41,6 +52,10 @@ long secUntilWindow(Rec rec, time_t now) {
     
     // Get the current local time
     struct tm* local_time = localtime(&now);
+    if (!local_time) {
+        return 0;
+    }
+
     int hour = local_time->tm_hour;
     int min = local_time->tm_min;
     int sec = local_time->tm_sec;
@@ -63,6 +78,10 @@ long secUntilWindow(Rec rec, time_t now) {
 //This should prevent an early notification 
 int withinWindow(Rec rec, time_t now) {
     struct tm* local_time = localtime(&now);
+    if (!local_time) {
+        return 0;
+    }
+
     int hour = local_time->tm_hour;
 
     //Check early cases
@@ -78,15 +97,26 @@ int withinWindow(Rec rec, time_t now) {
     return 1;
 }
 
-//Describe the current recommendation without applying notification timing or
-//dispatch policy. This keeps the web status informational only.
-const char* getCurrentStatus(int house, int outside_air, int speed) {
-    switch (getRec(house, outside_air, speed)) {
+//Describe the current recommendation using the same time-aware policy as the
+//polling loop, without applying notification dispatch state.
+const char* getCurrentStatusForTime(int house, int outside_air, time_t now) {
+    switch (getRecForTime(house, outside_air, now)) {
         case REC_OPEN:
             return "Cooler out than in - Open windows";
         case REC_CLOSE:
             return "Hotter out than in - Close windows";
         default:
+            if (outside_air - house < -MARGIN) {
+                return "Cooler out than in - waiting for open window";
+            }
+            if (outside_air - house > MARGIN) {
+                return "Hotter out than in - waiting for close window";
+            }
             return "All clear - no action needed";
     }
+}
+
+const char* getCurrentStatus(int house, int outside_air, int speed) {
+    (void)speed;
+    return getCurrentStatusForTime(house, outside_air, time(NULL));
 }

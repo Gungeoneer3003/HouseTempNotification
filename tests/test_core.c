@@ -19,25 +19,35 @@ static time_t localTimeAtHour(int hour) {
 }
 
 static void testRecommendations(void) {
-    assert(getRec(75, 75 - MARGIN, 0) == REC_OPEN);
-    assert(getRec(75, 75 - MARGIN + 1, 0) == REC_NONE);
-    assert(getRec(70, 70 + MARGIN, 1) == REC_CLOSE);
-    assert(getRec(70, 70 + MARGIN - 1, 1) == REC_NONE);
+    time_t open_time = localTimeAtHour(ALLOW_OPEN_AFTER_HOUR);
+    time_t close_time = localTimeAtHour(ALLOW_CLOSE_AFTER_HOUR);
+
+    assert(getRecForTime(75, 74 - MARGIN, open_time) == REC_OPEN);
+    assert(getRecForTime(75, 74 - MARGIN, close_time) == REC_NONE);
+    assert(getRecForTime(70, 71 + MARGIN, close_time) == REC_CLOSE);
+    assert(getRecForTime(70, 71 + MARGIN, open_time) == REC_NONE);
+    assert(getRecForTime(70, 70, open_time) == REC_NONE);
+
+    // The legacy wrapper ignores fan speed, so identical temperatures and time
+    // should not become a recommendation because of fan state.
+    assert(getRecForTime(70, 70, close_time) == REC_NONE);
 
     assert(strcmp(getRecName(REC_OPEN), "open") == 0);
     assert(strcmp(getRecName(REC_CLOSE), "close") == 0);
-    assert(strcmp(getCurrentStatus(75, 75 - MARGIN, 0),
+    assert(strcmp(getCurrentStatusForTime(75, 74 - MARGIN, open_time),
                   "Cooler out than in - Open windows") == 0);
-    assert(strcmp(getCurrentStatus(70, 70 + MARGIN, 1),
+    assert(strcmp(getCurrentStatusForTime(70, 71 + MARGIN, close_time),
                   "Hotter out than in - Close windows") == 0);
-    assert(strcmp(getCurrentStatus(70, 70 + MARGIN - 1, 1),
+    assert(strcmp(getCurrentStatusForTime(70, 71 + MARGIN, open_time),
+                  "Hotter out than in - waiting for close window") == 0);
+    assert(strcmp(getCurrentStatusForTime(70, 70, open_time),
                   "All clear - no action needed") == 0);
     assert(strcmp(getRecName(REC_NONE), "none") == 0);
 
-    assert(withinWindow(REC_OPEN, localTimeAtHour(ALLOW_OPEN_AFTER_HOUR)));
+    assert(withinWindow(REC_OPEN, open_time));
     assert(!withinWindow(REC_OPEN, localTimeAtHour(ALLOW_OPEN_AFTER_HOUR - 1)));
-    assert(withinWindow(REC_CLOSE, localTimeAtHour(ALLOW_CLOSE_AFTER_HOUR)));
-    assert(!withinWindow(REC_CLOSE, localTimeAtHour(ALLOW_OPEN_AFTER_HOUR)));
+    assert(withinWindow(REC_CLOSE, close_time));
+    assert(!withinWindow(REC_CLOSE, open_time));
 }
 
 static void testJsonParseInt(void) {
