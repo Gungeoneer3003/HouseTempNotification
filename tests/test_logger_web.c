@@ -86,6 +86,9 @@ static int appendRecentSampleLogIfNeeded(const char* log_path) {
             "{\"ts\":%lld,\"fields\":[\"71\",\"68\",\"77\",\"1\",\"none\",\"sensor\",\"local viewer sample holding\"]}\n",
             (long long)(now - 1800));
     fprintf(file,
+            "{\"ts\":%lld,\"fields\":[\"70\",\"66\",\"76\",\"0\",\"close\",\"fan auto off\",\"local viewer sample automatic fan shutoff\"]}\n",
+            (long long)(now - 60));
+    fprintf(file,
             "{\"ts\":%lld,\"fields\":[\"70\",\"66\",\"76\",\"0\",\"close\",\"close notif\",\"local viewer sample close\"]}\n",
             (long long)now);
 

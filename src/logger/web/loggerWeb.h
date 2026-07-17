@@ -59,6 +59,12 @@ int loggerWebShowVerts(const char* graph_title,
                        const char* value,
                        const char* label,
                        const char* color);
+int loggerWebShowEventMarker(const char* graph_title,
+                             const char* column,
+                             const char* value,
+                             const char* label,
+                             const char* color,
+                             const char* marker_shape);
 int loggerWebShowSpan(const char* graph_title,
                       const char* column,
                       const char* start_value,

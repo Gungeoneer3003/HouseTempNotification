@@ -86,6 +86,11 @@
                     return;
                 }
 
+                if (eventMarkerShape(event) === "down-triangle") {
+                    drawDownTriangle(ctx, x, area.top + 14, event.color || "#ef4444");
+                    return;
+                }
+
                 ctx.strokeStyle = event.color || "#ef4444";
                 ctx.lineWidth = 1.5;
                 ctx.setLineDash([5, 5]);
@@ -540,17 +545,38 @@
             return marker && typeof marker.label === "string" && marker.label.length > 0;
         }).map(function (marker) {
             const color = typeof marker.color === "string" ? marker.color : "#ef4444";
+            const downTriangle = eventMarkerShape(marker) === "down-triangle";
             return {
                 text: marker.label,
                 fillStyle: color,
                 strokeStyle: color,
-                lineWidth: 2,
-                lineDash: [5, 5],
-                pointStyle: "line",
-                rotation: 90,
+                lineWidth: downTriangle ? 0 : 2,
+                lineDash: downTriangle ? [] : [5, 5],
+                pointStyle: downTriangle ? "triangle" : "line",
+                rotation: downTriangle ? 180 : 90,
                 hidden: false
             };
         });
+    }
+
+    function drawDownTriangle(ctx, x, y, color) {
+        // Keep automatic fan shutoffs visible without covering the data lines.
+        const size = 7;
+        ctx.save();
+        ctx.setLineDash([]);
+        ctx.fillStyle = color;
+        ctx.strokeStyle = color;
+        ctx.beginPath();
+        ctx.moveTo(x - size, y - size / 2);
+        ctx.lineTo(x + size, y - size / 2);
+        ctx.lineTo(x, y + size);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+    }
+
+    function eventMarkerShape(event) {
+        return event && typeof event.shape === "string" ? event.shape : "line";
     }
 
     function createStatsBox(graph) {

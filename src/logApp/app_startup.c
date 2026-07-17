@@ -81,6 +81,14 @@ void appStartLoggerWebOnPort(const AppConfig* config, unsigned short port)
                            "close notif",
                            "Close",
                            "#8b1a1a");
+        // Automatic fan shutoffs use the generic graph marker API so the logger
+        // web component stays reusable outside this house temperature app.
+        loggerWebShowEventMarker(firstGraph,
+                                 "Event",
+                                 "fan auto off",
+                                 "Fan Off",
+                                 "#972f2f",
+                                 "down-triangle");
         loggerWebShowSpan(firstGraph, "Event", "open notif", "close notif", "#176e74");
 
         loggerWebInsertGraph(secondGraph,
@@ -97,6 +105,14 @@ void appStartLoggerWebOnPort(const AppConfig* config, unsigned short port)
                            "close notif",
                            "Close",
                            "#8b1a1a");
+        // Automatic fan shutoffs use the generic graph marker API so the logger
+        // web component stays reusable outside this house temperature app.
+        loggerWebShowEventMarker(secondGraph,
+                                 "Event",
+                                 "fan auto off",
+                                 "Fan Off",
+                                 "#972f2f",
+                                 "down-triangle");
         loggerWebShowSpan(secondGraph, "Event", "open notif", "close notif", "#176e74");
 
         loggerWebShowStats(1);

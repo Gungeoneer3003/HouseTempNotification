@@ -19,7 +19,8 @@ static int appendGraphVert(LoggerWebGraph* graph,
                            size_t column_index,
                            const char* value,
                            const char* label,
-                           const char* color);
+                           const char* color,
+                           const char* marker_shape);
 static int appendGraphSpan(LoggerWebGraph* graph,
                            const char* column,
                            size_t column_index,
@@ -200,13 +201,54 @@ int loggerWebShowVerts(const char* graph_title,
         return 0;
     }
 
-    //Append the vertical line to the graph with the specified parameters
+    //Append a default vertical-line marker to the graph with the specified parameters.
     int ok = appendGraphVert(graph,
                              column,
                              column_index,
                              value,
                              label,
-                             color && *color ? color : "#ef4444");
+                             color && *color ? color : "#ef4444",
+                             "line");
+
+    loggerWebMutexUnlock(&active_server_mutex);
+    return ok;
+}
+
+int loggerWebShowEventMarker(const char* graph_title,
+                             const char* column,
+                             const char* value,
+                             const char* label,
+                             const char* color,
+                             const char* marker_shape) {
+    // This generic marker API keeps application-specific event meanings out of
+    // the reusable logger web renderer. Supported shapes include "line" and
+    // "down-triangle"; unknown shapes fall back to the default line renderer.
+    if (!graph_title || !*graph_title || !column || !*column ||
+        !value || !*value || !label || !*label) {
+        return 0;
+    }
+
+    loggerWebMutexLock(&active_server_mutex);
+    LoggerWebServer* server = active_server;
+    if (!server) {
+        loggerWebMutexUnlock(&active_server_mutex);
+        return 0;
+    }
+
+    LoggerWebGraph* graph = findGraphByTitle(server, graph_title);
+    size_t column_index = 0;
+    if (!graph || !loggerWebResolveColumnIndex(server, column, &column_index)) {
+        loggerWebMutexUnlock(&active_server_mutex);
+        return 0;
+    }
+
+    int ok = appendGraphVert(graph,
+                             column,
+                             column_index,
+                             value,
+                             label,
+                             color && *color ? color : "#ef4444",
+                             marker_shape && *marker_shape ? marker_shape : "line");
 
     loggerWebMutexUnlock(&active_server_mutex);
     return ok;
@@ -311,6 +353,7 @@ static void freeGraph(LoggerWebGraph* graph) {
             free(graph->verts[i].value);
             free(graph->verts[i].label);
             free(graph->verts[i].color);
+            free(graph->verts[i].marker_shape);
         }
     }
 
@@ -355,7 +398,8 @@ static int appendGraphVert(LoggerWebGraph* graph,
                            size_t column_index,
                            const char* value,
                            const char* label,
-                           const char* color) {
+                           const char* color,
+                           const char* marker_shape) {
     //Check if the graph has enough capacity to accommodate the new vertical line
     if (graph->vert_count == graph->vert_capacity) {
         size_t next_capacity = graph->vert_capacity == 0 ? 2 : graph->vert_capacity * 2;
@@ -375,14 +419,16 @@ static int appendGraphVert(LoggerWebGraph* graph,
     vert->value = loggerWebCopyString(value);
     vert->label = loggerWebCopyString(label);
     vert->color = loggerWebCopyString(color);
+    vert->marker_shape = loggerWebCopyString(marker_shape && *marker_shape ? marker_shape : "line");
     vert->column_index = column_index;
 
     //Check if any of the allocations for the vertical line failed
-    if (!vert->column || !vert->value || !vert->label || !vert->color) {
+    if (!vert->column || !vert->value || !vert->label || !vert->color || !vert->marker_shape) {
         free(vert->column);
         free(vert->value);
         free(vert->label);
         free(vert->color);
+        free(vert->marker_shape);
         memset(vert, 0, sizeof(*vert));
         return 0;
     }

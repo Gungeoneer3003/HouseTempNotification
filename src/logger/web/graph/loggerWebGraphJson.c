@@ -165,6 +165,8 @@ static void writeGraphEventMarkersJson(PortableSocket client_fd,
         loggerWebSendJsonEscaped(client_fd, graph->verts[i].label);
         loggerWebSendAll(client_fd, "\",\"color\":\"");
         loggerWebSendJsonEscaped(client_fd, graph->verts[i].color);
+        loggerWebSendAll(client_fd, "\",\"shape\":\"");
+        loggerWebSendJsonEscaped(client_fd, graph->verts[i].marker_shape);
         loggerWebSendAll(client_fd, "\"}");
     }
 }
@@ -480,6 +482,8 @@ static void writeGraphEventsJson(PortableSocket client_fd,
             loggerWebSendJsonEscaped(client_fd, graph->verts[i].label);
             loggerWebSendAll(client_fd, "\",\"color\":\"");
             loggerWebSendJsonEscaped(client_fd, graph->verts[i].color);
+            loggerWebSendAll(client_fd, "\",\"shape\":\"");
+            loggerWebSendJsonEscaped(client_fd, graph->verts[i].marker_shape);
             loggerWebSendAll(client_fd, "\"}");
             wrote_event = 1;
         }

@@ -129,6 +129,7 @@ typedef struct {
     char* value;
     char* label;
     char* color;
+    char* marker_shape;
     size_t column_index;
 } LoggerWebVert;
 
