@@ -13,6 +13,7 @@ typedef struct {
     const char* slow_down_part;
     const char* log_path;
     const char* lock_path;
+    const char* notification_lock_path;
     Logger* logger;
     char cgi_url[256];
     char shutoff_url[256];

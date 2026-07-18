@@ -39,6 +39,7 @@ void configInitDefaults(AppConfig* config) {
     config->slow_down_part = NULL;
     config->log_path = DEFAULT_LOG_FILE;
     config->lock_path = DEFAULT_LOCK_FILE;
+    config->notification_lock_path = DEFAULT_NOTIFICATION_LOCK_FILE;
     config->logger = NULL;
     config->cgi_url[0] = '\0';
     config->shutoff_url[0] = '\0';
@@ -78,6 +79,11 @@ int configLoad(AppConfig* config, const char* env_file) {
     const char* lock_path = getenv("LOCK_FILE");
     if (lock_path && *lock_path) {
         config->lock_path = lock_path;
+    }
+
+    const char* notification_lock_path = getenv("NOTIFICATION_LOCK_FILE");
+    if (notification_lock_path && *notification_lock_path) {
+        config->notification_lock_path = notification_lock_path;
     }
 
     //Check if any required configuration is missing

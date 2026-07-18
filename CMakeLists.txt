@@ -51,6 +51,7 @@ add_executable(test_core
     tests/test_core.c
     src/json/jsonUtils.c
     src/house/rec.c
+    src/notification/notification_lock.c
 )
 target_include_directories(test_core PRIVATE ${PROJECT_INCLUDE_DIRS})
 
@@ -86,6 +87,7 @@ if(BUILD_HOUSE_APP)
             src/logApp/app_startup.c
             src/house/poller.c
             src/notification/notification_worker.c
+            src/notification/notification_lock.c
             src/logApp/web_controls.c
             src/house/config.c
             src/house/houseApi.c

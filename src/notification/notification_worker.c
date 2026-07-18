@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "logger.h"
+#include "notification_lock.h"
 #include "portable.h"
 
 typedef struct NotificationJob {
@@ -143,6 +144,22 @@ static void sendNotification(const NotificationJob* job)
 {
     char msg[256];
     int fanOffOk = 1;
+    const char* lock_path = notification_config ? notification_config->notification_lock_path : NULL;
+
+    // Honor the persisted quiet-period lock before doing any side effects. This
+    // prevents a service restart from resending the same notification window.
+    time_t lock_check_now = time(NULL);
+    time_t active_until = notificationLockActiveUntil(lock_path, job->rec, lock_check_now);
+    if (active_until > lock_check_now)
+    {
+        long sleep_sec = (long)difftime(active_until, lock_check_now);
+        char sleep_detail[64];
+        snprintf(sleep_detail, sizeof(sleep_detail), "sleep(%u)", (unsigned int)sleep_sec);
+        logNotificationStatus("Sleeping", sleep_detail);
+        portableSleepSeconds((unsigned int)sleep_sec);
+        clearActiveNotification(job->rec);
+        return;
+    }
 
     // Close recommendations are no longer based on fan speed, but the action
     // should only issue a fan-off command when the reading says fans are on.
@@ -179,6 +196,12 @@ static void sendNotification(const NotificationJob* job)
         logNotificationEvent(job, notifEvent, msg);
 
         long sleep_sec = secUntilWindow(job->rec, job->now);
+        time_t quiet_until = job->now + (sleep_sec > 0 ? sleep_sec : 0);
+        if (!notificationLockMarkSent(lock_path, job->rec, quiet_until))
+        {
+            logNotificationStatus("notify lock failed", lock_path ? lock_path : "");
+        }
+
         char sleep_detail[64];
         snprintf(sleep_detail, sizeof(sleep_detail), "sleep(%u)", (unsigned int)sleep_sec);
         logNotificationStatus("Sleeping", sleep_detail);

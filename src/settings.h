@@ -42,9 +42,14 @@
 #define ALLOW_CLOSE_AFTER_HOUR 3
 #endif
 
-//Path to the lock file
+//Path to the process lock file
 #ifndef DEFAULT_LOCK_FILE
 #define DEFAULT_LOCK_FILE "house_notify.lock"
+#endif
+
+//Path to the persisted notification quiet-period lock file
+#ifndef DEFAULT_NOTIFICATION_LOCK_FILE
+#define DEFAULT_NOTIFICATION_LOCK_FILE "house_notify_notification.lock"
 #endif
 
 //The default speed for the fan after being awoken from power off

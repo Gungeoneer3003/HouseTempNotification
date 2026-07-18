@@ -4,6 +4,7 @@
 #include <time.h>
 
 #include "jsonUtils.h"
+#include "notification_lock.h"
 #include "rec.h"
 #include "settings.h"
 
@@ -26,11 +27,12 @@ static void testRecommendations(void) {
     assert(getRecForTime(75, 74 - MARGIN, close_time) == REC_NONE);
     assert(getRecForTime(70, 71 + MARGIN, close_time) == REC_CLOSE);
     assert(getRecForTime(70, 71 + MARGIN, open_time) == REC_NONE);
-    assert(getRecForTime(70, 70, open_time) == REC_NONE);
-
-    // The legacy wrapper ignores fan speed, so identical temperatures and time
-    // should not become a recommendation because of fan state.
-    assert(getRecForTime(70, 70, close_time) == REC_NONE);
+    
+    // With MARGIN=0, equal temperatures are enough to trigger the active
+    // notification window. Open is checked first during the open window, and
+    // close is checked during the close-only window.
+    assert(getRecForTime(70, 70, open_time) == REC_OPEN);
+    assert(getRecForTime(70, 70, close_time) == REC_CLOSE);
 
     assert(strcmp(getRecName(REC_OPEN), "open") == 0);
     assert(strcmp(getRecName(REC_CLOSE), "close") == 0);
@@ -41,13 +43,35 @@ static void testRecommendations(void) {
     assert(strcmp(getCurrentStatusForTime(70, 71 + MARGIN, open_time),
                   "Hotter out than in - waiting for close window") == 0);
     assert(strcmp(getCurrentStatusForTime(70, 70, open_time),
-                  "All clear - no action needed") == 0);
+                  "Cooler out than in - Open windows") == 0);
     assert(strcmp(getRecName(REC_NONE), "none") == 0);
 
     assert(withinWindow(REC_OPEN, open_time));
     assert(!withinWindow(REC_OPEN, localTimeAtHour(ALLOW_OPEN_AFTER_HOUR - 1)));
     assert(withinWindow(REC_CLOSE, close_time));
     assert(!withinWindow(REC_CLOSE, open_time));
+}
+
+static void testNotificationLock(void) {
+    const char* path = "test_notification_lock.tmp";
+    time_t now = 1000;
+
+    remove(path);
+    remove("test_notification_lock.tmp.tmp");
+
+    assert(notificationLockActiveUntil(path, REC_CLOSE, now) == 0);
+    assert(notificationLockMarkSent(path, REC_CLOSE, now + 300));
+    assert(notificationLockActiveUntil(path, REC_CLOSE, now) == now + 300);
+    assert(notificationLockActiveUntil(path, REC_OPEN, now) == 0);
+    assert(notificationLockActiveUntil(path, REC_CLOSE, now + 301) == 0);
+
+    // Updating one recommendation should not erase the other saved slot.
+    assert(notificationLockMarkSent(path, REC_OPEN, now + 600));
+    assert(notificationLockActiveUntil(path, REC_CLOSE, now) == now + 300);
+    assert(notificationLockActiveUntil(path, REC_OPEN, now) == now + 600);
+
+    remove(path);
+    remove("test_notification_lock.tmp.tmp");
 }
 
 static void testJsonParseInt(void) {
@@ -65,6 +89,7 @@ static void testJsonParseInt(void) {
 
 int main(void) {
     testRecommendations();
+    testNotificationLock();
     testJsonParseInt();
     puts("core tests passed");
     return 0;
