@@ -34,7 +34,7 @@ LIBS = -lcurl -pthread
 
 SERVICE = house-notification.service
 
-.PHONY: build run kill clean debug test notify-test-build notify-test logger-web-test-build start stop restart status disable enable
+.PHONY: build run kill clean debug test notify-test-build notify-test logger-web-test-build start stop restart deploy status disable enable
 
 #For running the program 
 debug:
@@ -75,6 +75,18 @@ stop:
 
 restart: build
 	$(SSH) $(HOST) 'sudo systemctl restart $(SERVICE)'
+
+# Pull the latest GitHub changes on the running computer, run the notif lock
+# script, rebuild, and restart the service.
+deploy:
+	$(SSH) $(HOST) '\
+		cd $(DIR) && \
+		git pull --ff-only && \
+		chmod +x notifLock.sh && \
+		./notifLock.sh && \
+		$(CC) $(CFLAGS) $(SRC) -o $(TARGET) $(LIBS) && \
+		sudo systemctl restart $(SERVICE) \
+	'
 
 status:
 	$(SSH) $(HOST) 'sudo systemctl status $(SERVICE) --no-pager'
