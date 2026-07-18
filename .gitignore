@@ -6,3 +6,4 @@ test_notification
 houseNotif
 build/
 out/
+house_notify_notification.lock
