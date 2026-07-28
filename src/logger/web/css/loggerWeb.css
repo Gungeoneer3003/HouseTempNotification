@@ -339,6 +339,15 @@ tr:last-child td {
     font-weight: 700;
 }
 
+/* Status colors use the exact Today status text set by rec.c */
+.today-status--hotter {
+    border-color: #ef4444;
+}
+
+.today-status--cooler {
+    border-color: #7dd3fc;
+}
+
 .is-hidden {
     display: none !important;
 }

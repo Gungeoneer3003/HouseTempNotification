@@ -124,8 +124,20 @@
 
         const statusBox = todayPanel.querySelector(".today-status");
         if (statusBox) {
-            statusBox.textContent = `Status: ${status}`;
+            statusBox.textContent = status;
+            applyTodayStatusColor(statusBox, status);
         }
+    }
+
+    function applyTodayStatusColor(statusBox, status) {
+        statusBox.classList.toggle(
+            "today-status--hotter",
+            status === "Hotter out than in"
+        );
+        statusBox.classList.toggle(
+            "today-status--cooler",
+            status === "Cooler out than in"
+        );
     }
 
     function setTodayControlsDisabled(controls, disabled) {

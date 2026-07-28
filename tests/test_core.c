@@ -37,13 +37,13 @@ static void testRecommendations(void) {
     assert(strcmp(getRecName(REC_OPEN), "open") == 0);
     assert(strcmp(getRecName(REC_CLOSE), "close") == 0);
     assert(strcmp(getCurrentStatusForTime(75, 74 - MARGIN, open_time),
-                  "Cooler out than in - Open windows") == 0);
+                  "Cooler out than in") == 0);
     assert(strcmp(getCurrentStatusForTime(70, 71 + MARGIN, close_time),
-                  "Hotter out than in - Close windows") == 0);
+                  "Hotter out than in") == 0);
     assert(strcmp(getCurrentStatusForTime(70, 71 + MARGIN, open_time),
-                  "Hotter out than in - waiting for close window") == 0);
+                  "Hotter out than in") == 0);
     assert(strcmp(getCurrentStatusForTime(70, 70, open_time),
-                  "Cooler out than in - Open windows") == 0);
+                  "Cooler out than in") == 0);
     assert(strcmp(getRecName(REC_NONE), "none") == 0);
 
     assert(withinWindow(REC_OPEN, open_time));

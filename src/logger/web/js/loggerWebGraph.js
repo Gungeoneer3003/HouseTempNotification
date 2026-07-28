@@ -199,8 +199,8 @@
 
         if (typeof today.status === "string" && today.status.length > 0) {
             const status = document.createElement("div");
-            status.className = "today-status";
-            status.textContent = `Status: ${today.status}`;
+            status.className = todayStatusClassName(today.status);
+            status.textContent = today.status;
             header.appendChild(status);
         }
         parent.appendChild(header);
@@ -866,6 +866,16 @@
 
     function colorForSeries(index) {
         return colors[index % colors.length];
+    }
+
+    function todayStatusClassName(status) {
+        if (status === "Hotter out than in") {
+            return "today-status today-status--hotter";
+        }
+        if (status === "Cooler out than in") {
+            return "today-status today-status--cooler";
+        }
+        return "today-status";
     }
 
     function colorForGraphSeries(series, index) {

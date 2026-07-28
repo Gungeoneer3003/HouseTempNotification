@@ -97,23 +97,11 @@ int withinWindow(Rec rec, time_t now) {
     return 1;
 }
 
-//Describe the current recommendation using the same time-aware policy as the
-//polling loop, without applying notification dispatch state.
+// Describe only the outside-vs-inside relationship for the Today panel
+// Equal readings are grouped with cooler so the UI always shows one state
 const char* getCurrentStatusForTime(int house, int outside_air, time_t now) {
-    switch (getRecForTime(house, outside_air, now)) {
-        case REC_OPEN:
-            return "Cooler out than in - Open windows";
-        case REC_CLOSE:
-            return "Hotter out than in - Close windows";
-        default:
-            if (outside_air - house < -MARGIN) {
-                return "Cooler out than in - waiting for open window";
-            }
-            if (outside_air - house > MARGIN) {
-                return "Hotter out than in - waiting for close window";
-            }
-            return "All clear - no action needed";
-    }
+    (void)now;
+    return outside_air > house ? "Hotter out than in" : "Cooler out than in";
 }
 
 const char* getCurrentStatus(int house, int outside_air, int speed) {

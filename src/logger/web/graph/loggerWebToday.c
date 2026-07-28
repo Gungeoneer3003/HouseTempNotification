@@ -338,13 +338,25 @@ static int readTodaySnapshot(const LoggerWebServer* server, LoggerWebTodaySnapsh
     return 1;
 }
 
+static const char* todayStatusClassName(const char* status) {
+    if (strcmp(status, "Hotter out than in") == 0) {
+        return "today-status today-status--hotter";
+    }
+    if (strcmp(status, "Cooler out than in") == 0) {
+        return "today-status today-status--cooler";
+    }
+    return "today-status";
+}
+
 static void sendTodayReadings(PortableSocket client_fd,
                               const LoggerWebTodaySnapshot* snapshot,
                               size_t column_count) {
     loggerWebSendAll(client_fd, "<div class=\"today-header\">");
     loggerWebSendAll(client_fd, "<div class=\"today-heading\">Current readings</div>");
     if (snapshot->status[0]) {
-        loggerWebSendAll(client_fd, "<div class=\"today-status\">Status: ");
+        loggerWebSendAll(client_fd, "<div class=\"");
+        loggerWebSendAll(client_fd, todayStatusClassName(snapshot->status));
+        loggerWebSendAll(client_fd, "\">");
         loggerWebSendEscaped(client_fd, snapshot->status);
         loggerWebSendAll(client_fd, "</div>");
     }
