@@ -117,6 +117,7 @@ static inline void loggerWebConditionWakeAll(LoggerWebCondition* condition) {
 #define LOGGER_WEB_CSS_FILE "src/logger/web/css/loggerWeb.css"
 #define LOGGER_WEB_GRAPH_SCRIPT_FILE "src/logger/web/js/loggerWebGraph.js"
 #define LOGGER_WEB_TODAY_SCRIPT_FILE "src/logger/web/js/loggerWebToday.js"
+#define LOGGER_WEB_FAVICON_FILE "src/logger/web/assets/AirscapeFavicon.png"
 
 typedef struct {
     char* name;
@@ -251,6 +252,7 @@ void loggerWebSendStaticFile(PortableSocket client_fd,
 void loggerWebSendCss(PortableSocket client_fd);
 void loggerWebSendGraphScript(PortableSocket client_fd);
 void loggerWebSendTodayScript(PortableSocket client_fd);
+void loggerWebSendFavicon(PortableSocket client_fd);
 
 // HTML pages and templates.
 void loggerWebSendIndex(PortableSocket client_fd,

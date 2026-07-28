@@ -158,14 +158,15 @@ void loggerWebSendStaticFile(PortableSocket client_fd,
             "Cache-Control: no-store\r\n"
             "Connection: close\r\n\r\n");
 
-    FILE* file = fopen(path, "r");
+    FILE* file = fopen(path, "rb");
     if (!file) {
         return;
     }
 
     char buffer[2048];
-    while (fgets(buffer, sizeof(buffer), file)) {
-        loggerWebSendAll(client_fd, buffer);
+    size_t bytes_read = 0;
+    while ((bytes_read = fread(buffer, 1, sizeof(buffer), file)) > 0) {
+        loggerWebSendBytes(client_fd, buffer, bytes_read);
     }
 
     fclose(file);

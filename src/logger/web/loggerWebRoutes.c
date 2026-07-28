@@ -157,6 +157,9 @@ void loggerWebHandleClient(PortableSocket client_fd, LoggerWebServer* server) {
     } else if (pathEquals(path, "/raw")) {
         pollForPageAccess(server, 0);
         loggerWebSendRawLog(client_fd, server, 0);
+    } else if (pathEquals(path, "/favicon.png") ||
+               pathEquals(path, "/favicon.ico")) {
+        loggerWebSendFavicon(client_fd);
     } else if (pathEquals(path, "/css/loggerWeb.css") ||
                pathEquals(path, "/style.css")) {
         loggerWebSendCss(client_fd);

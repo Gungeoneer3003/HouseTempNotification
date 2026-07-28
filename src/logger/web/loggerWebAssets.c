@@ -27,3 +27,7 @@ void loggerWebSendTodayScript(PortableSocket client_fd) {
                    "application/javascript; charset=utf-8",
                    LOGGER_WEB_TODAY_SCRIPT_FILE);
 }
+
+void loggerWebSendFavicon(PortableSocket client_fd) {
+    loggerWebSendStaticFile(client_fd, "image/png", LOGGER_WEB_FAVICON_FILE);
+}
