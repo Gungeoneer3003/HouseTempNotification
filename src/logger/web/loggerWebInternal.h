@@ -299,10 +299,14 @@ int loggerWebGraphRangeWindow(LoggerWebGraphRange range,
                               time_t now,
                               time_t* range_start,
                               time_t* range_end);
-int loggerWebGraphStatsWindow(time_t now, time_t* window_start, time_t* window_end);
+int loggerWebGraphStatsWindow(LoggerWebGraphRange range,
+                              time_t now,
+                              time_t* window_start,
+                              time_t* window_end);
 void loggerWebSendGraphData(PortableSocket client_fd,
                             const LoggerWebServer* server,
-                            LoggerWebGraphRange range);
+                            LoggerWebGraphRange range,
+                            const char* request);
 int loggerWebShouldShowTodayPanel(const LoggerWebServer* server, int is_root);
 void loggerWebSendTodayPanel(PortableSocket client_fd, const LoggerWebServer* server);
 void loggerWebHandleTodayControl(PortableSocket client_fd,

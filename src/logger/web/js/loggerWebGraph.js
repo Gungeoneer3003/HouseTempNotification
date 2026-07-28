@@ -11,7 +11,12 @@
     let currentRange = rangeDay;
     let currentRangeStart = null;
     let currentRangeEnd = null;
-    let loadingGraphs = false;
+
+    // Keep fetched ranges in memory so switching back can render immediately
+    const graphDataCache = Object.create(null);
+    const loadingRanges = Object.create(null);
+    const allGraphRanges = [rangeDay, rangeThreeDays, rangeWeek];
+    let renderedSignature = null;
 
     if (!root) {
         return;
@@ -118,42 +123,131 @@
         }
     };
 
-    async function loadGraphs() {
+    function loadAllGraphRanges() {
+        allGraphRanges.forEach((range) => {
+            loadGraphs(range);
+        });
+    }
+
+    async function loadGraphs(range) {
         if (!chartIsReady()) {
             renderError("Chart.js is unavailable.");
             return;
         }
 
-        if (loadingGraphs) {
+        const requestRange = normalizeRange(range || currentRange);
+        if (loadingRanges[requestRange]) {
             return;
         }
 
-        loadingGraphs = true;
+        loadingRanges[requestRange] = true;
         try {
-            const response = await fetch(graphDataRequestUrl(), { cache: "no-store" });
+            const response = await fetch(
+                graphDataRequestUrl(requestRange),
+                { cache: "no-store" }
+            );
+            if (response.status === 304) {
+                return;
+            }
             if (!response.ok) {
                 throw new Error("graph data request failed");
             }
 
             const data = await response.json();
-            currentRange = normalizeRange(data.range);
-            currentRangeStart = finiteNumber(data.rangeStartUnix);
-            currentRangeEnd = finiteNumber(data.rangeEndUnix);
-            currentToday = data.today || null;
-            currentGraphs = Array.isArray(data.graphs) ? data.graphs : [];
-            renderToday();
-            renderGraphs();
+            const dataRange = normalizeRange(data.range);
+            const changed = cacheGraphData(data);
+            if (currentRange === dataRange && changed) {
+                renderGraphData(data);
+            }
         } catch (error) {
-            renderToday(null);
-            renderError("Graph data unavailable.");
+            if (currentRange === requestRange && !graphDataCache[requestRange]) {
+                renderToday(null);
+                renderError("Graph data unavailable.");
+            }
         } finally {
-            loadingGraphs = false;
+            loadingRanges[requestRange] = false;
         }
     }
 
-    function graphDataRequestUrl() {
+    function cacheGraphData(data) {
+        const nextRange = normalizeRange(data.range);
+        const nextSignature = graphDataSignature(data);
+        const cached = graphDataCache[nextRange];
+
+        // If the server result matches memory, keep the already-rendered view
+        if (cached && cached.signature === nextSignature) {
+            return false;
+        }
+
+        graphDataCache[nextRange] = {
+            data,
+            signature: nextSignature
+        };
+        return true;
+    }
+
+    function renderGraphData(data) {
+        const nextSignature = graphDataSignature(data);
+        if (renderedSignature === nextSignature) {
+            return;
+        }
+
+        renderedSignature = nextSignature;
+        currentRange = normalizeRange(data.range);
+        currentRangeStart = finiteNumber(data.rangeStartUnix);
+        currentRangeEnd = finiteNumber(data.rangeEndUnix);
+        currentToday = data.today || null;
+        currentGraphs = Array.isArray(data.graphs) ? data.graphs : [];
+        renderToday();
+        renderGraphs();
+    }
+
+    function graphDataSignature(data) {
+        const graphs = Array.isArray(data.graphs) ? data.graphs : [];
+        return JSON.stringify({
+            range: normalizeRange(data.range),
+            version: data.version || "",
+            start: finiteNumber(data.rangeStartUnix),
+            end: finiteNumber(data.rangeEndUnix),
+            today: data.today && data.today.time ? data.today.time : "",
+            graphs: graphs.map(graphSignature)
+        });
+    }
+
+    function graphSignature(graph) {
+        const points = Array.isArray(graph.points) ? graph.points : [];
+        const firstPoint = points.length > 0 ? points[0] : null;
+        const lastPoint = points.length > 0 ? points[points.length - 1] : null;
+        return {
+            title: graph.title || "",
+            pointCount: points.length,
+            firstTime: firstPoint ? finiteNumber(firstPoint.time) : null,
+            lastTime: lastPoint ? finiteNumber(lastPoint.time) : null,
+            lastValues: lastPoint && Array.isArray(lastPoint.values)
+                ? lastPoint.values
+                : [],
+            stats: statsSignature(graph.stats)
+        };
+    }
+
+    function statsSignature(stats) {
+        const series = stats && Array.isArray(stats.series) ? stats.series : [];
+        return series.map((item) => ({
+            name: item.name || "",
+            min: finiteNumber(item.min),
+            max: finiteNumber(item.max)
+        }));
+    }
+
+    function graphDataRequestUrl(range) {
         const separator = graphDataUrl.includes("?") ? "&" : "?";
-        return `${graphDataUrl}${separator}range=${encodeURIComponent(currentRange)}`;
+        const cached = graphDataCache[range];
+        const version = cached && cached.data ? cached.data.version : "";
+        const versionQuery = version
+            ? `&version=${encodeURIComponent(version)}`
+            : "";
+        return `${graphDataUrl}${separator}range=${encodeURIComponent(range)}` +
+            versionQuery;
     }
 
     function normalizeRange(value) {
@@ -367,7 +461,7 @@
 
         if (showRefreshButton) {
             actions.appendChild(actionButton("Refresh", () => {
-                loadGraphs();
+                loadAllGraphRanges();
             }));
         }
         actions.appendChild(rangeButton(rangeDay, "Day"));
@@ -380,7 +474,10 @@
     function rangeButton(range, label) {
         return actionButton(label, () => {
             currentRange = range;
-            loadGraphs();
+            if (graphDataCache[range]) {
+                renderGraphData(graphDataCache[range].data);
+            }
+            loadAllGraphRanges();
         }, currentRange === range);
     }
 
@@ -590,7 +687,7 @@
 
         const title = document.createElement("div");
         title.className = "stats-title";
-        title.textContent = "Today's Stats";
+        title.textContent = statsTitleForRange();
         box.appendChild(title);
 
         const grid = document.createElement("div");
@@ -614,6 +711,16 @@
         });
         box.appendChild(grid);
         return box;
+    }
+
+    function statsTitleForRange() {
+        if (currentRange === rangeThreeDays) {
+            return "Three Days' Stats";
+        }
+        if (currentRange === rangeWeek) {
+            return "Week's Stats";
+        }
+        return "Today's Stats";
     }
 
     function statValue(label, value) {
@@ -909,8 +1016,8 @@
         return element;
     }
 
-    loadGraphs();
+    loadAllGraphRanges();
     if (!showRefreshButton) {
-        window.setInterval(loadGraphs, graphRefreshMs);
+        window.setInterval(loadAllGraphRanges, graphRefreshMs);
     }
 }());

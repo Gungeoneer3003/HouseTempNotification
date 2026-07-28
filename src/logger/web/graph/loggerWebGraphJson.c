@@ -14,21 +14,37 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#ifdef _WIN32
+#include <sys/stat.h>
+#else
+#include <sys/stat.h>
+#endif
 
 //Function prototypes for internal functions used in the logger web server
 static void writeGraphJson(PortableSocket client_fd,
                            const LoggerWebServer* server,
                            const LoggerWebGraph* graph,
+                           LoggerWebGraphRange range,
                            time_t range_start,
                            time_t range_end);
 static void writeGraphPointsJson(PortableSocket client_fd,
                                  const LoggerWebServer* server,
                                  const LoggerWebGraph* graph,
                                  time_t range_start,
-                                 time_t range_end);
+                                 time_t range_end,
+                                 time_t stats_start,
+                                 time_t stats_end,
+                                 double* stats_mins,
+                                 double* stats_maxes,
+                                 int* stats_has_value);
 static void writeGraphStatsJson(PortableSocket client_fd,
                                 const LoggerWebServer* server,
-                                const LoggerWebGraph* graph);
+                                const LoggerWebGraph* graph,
+                                time_t stats_start,
+                                time_t stats_end,
+                                const double* stats_mins,
+                                const double* stats_maxes,
+                                const int* stats_has_value);
 static void writeGraphEventMarkersJson(PortableSocket client_fd,
                                        const LoggerWebGraph* graph);
 static void writeGraphEventsJson(PortableSocket client_fd,
@@ -41,12 +57,25 @@ static void writeGraphSpansJson(PortableSocket client_fd,
                                 const LoggerWebGraph* graph,
                                 time_t range_start,
                                 time_t range_end);
+static int graphLogVersion(const LoggerWebServer* server,
+                           char* buffer,
+                           size_t buffer_size);
+static int graphRequestVersionMatches(const char* request,
+                                      const char* version);
+static void sendGraphNotModified(PortableSocket client_fd);
 
 //Send the graph data in JSON format to the client for the specified range
 void loggerWebSendGraphData(PortableSocket client_fd,
                             const LoggerWebServer* server,
-                            LoggerWebGraphRange range) {
-    
+                            LoggerWebGraphRange range,
+                            const char* request) {
+    char version[96] = "";
+    if (graphLogVersion(server, version, sizeof(version)) &&
+        graphRequestVersionMatches(request, version)) {
+        sendGraphNotModified(client_fd);
+        return;
+    }
+
     //Get the current time and calculate the start and end times
     time_t now = time(NULL);
     time_t range_start = now - (time_t)24 * 60 * 60;
@@ -80,6 +109,8 @@ void loggerWebSendGraphData(PortableSocket client_fd,
                      "Connection: close\r\n\r\n"
                      "{\"range\":\"");
     loggerWebSendAll(client_fd, loggerWebGraphRangeName(range));
+    loggerWebSendAll(client_fd, "\",\"version\":\"");
+    loggerWebSendJsonEscaped(client_fd, version);
     loggerWebSendAll(client_fd, "\",\"rangeStart\":\"");
     loggerWebSendJsonEscaped(client_fd, range_start_label);
     loggerWebSendAll(client_fd, "\",\"rangeStartUnix\":");
@@ -101,12 +132,97 @@ void loggerWebSendGraphData(PortableSocket client_fd,
             loggerWebSendAll(client_fd, ",");
         }
 
-        writeGraphJson(client_fd, server, &server->graphs[i], range_start, range_end);
+        writeGraphJson(client_fd,
+                       server,
+                       &server->graphs[i],
+                       range,
+                       range_start,
+                       range_end);
     }
 
     loggerWebMutexUnlock(&active_server_mutex);
 
     loggerWebSendAll(client_fd, "]}");
+}
+
+static int graphLogVersion(const LoggerWebServer* server,
+                           char* buffer,
+                           size_t buffer_size) {
+    if (!server || !buffer || buffer_size == 0) {
+        return 0;
+    }
+
+#ifdef _WIN32
+    struct _stat64 info;
+    if (_stat64(server->log_path, &info) != 0) {
+        return 0;
+    }
+#else
+    struct stat info;
+    if (stat(server->log_path, &info) != 0) {
+        return 0;
+    }
+#endif
+
+    int n = snprintf(buffer,
+                     buffer_size,
+                     "%lld-%lld-%zu-%zu",
+                     (long long)info.st_mtime,
+                     (long long)info.st_size,
+                     server->graph_count,
+                     server->column_header_count);
+    return n > 0 && (size_t)n < buffer_size;
+}
+
+static int graphRequestVersionMatches(const char* request,
+                                      const char* version) {
+    if (!request || !version || !*version) {
+        return 0;
+    }
+
+    const char* query = strchr(request, '?');
+    if (!query) {
+        return 0;
+    }
+
+    const char* query_end = strchr(query, ' ');
+    if (!query_end) {
+        query_end = query + strlen(query);
+    }
+
+    const char version_prefix[] = "version=";
+    const size_t version_prefix_length = sizeof(version_prefix) - 1;
+    const char* cursor = query + 1;
+
+    while (cursor < query_end) {
+        const char* param_end = cursor;
+        while (param_end < query_end && *param_end != '&') {
+            param_end++;
+        }
+
+        size_t param_length = (size_t)(param_end - cursor);
+        if (param_length >= version_prefix_length &&
+            strncmp(cursor, version_prefix, version_prefix_length) == 0) {
+            const char* value = cursor + version_prefix_length;
+            size_t value_length = param_length - version_prefix_length;
+            return strlen(version) == value_length &&
+                   strncmp(value, version, value_length) == 0;
+        }
+
+        cursor = param_end;
+        if (cursor < query_end && *cursor == '&') {
+            cursor++;
+        }
+    }
+
+    return 0;
+}
+
+static void sendGraphNotModified(PortableSocket client_fd) {
+    loggerWebSendAll(client_fd,
+                     "HTTP/1.1 304 Not Modified\r\n"
+                     "Cache-Control: no-store\r\n"
+                     "Connection: close\r\n\r\n");
 }
 
 //Write the graph data in JSON format for the specified graph and range
@@ -115,6 +231,7 @@ void loggerWebSendGraphData(PortableSocket client_fd,
 static void writeGraphJson(PortableSocket client_fd,
                            const LoggerWebServer* server,
                            const LoggerWebGraph* graph,
+                           LoggerWebGraphRange range,
                            time_t range_start,
                            time_t range_end) {
     loggerWebSendAll(client_fd, "{\"title\":\"");
@@ -139,10 +256,53 @@ static void writeGraphJson(PortableSocket client_fd,
         loggerWebSendAll(client_fd, "}");
     }
 
+    time_t stats_start = 0;
+    time_t stats_end = 0;
+    double* stats_mins = NULL;
+    double* stats_maxes = NULL;
+    int* stats_has_value = NULL;
+
+    if (server->show_stats &&
+        loggerWebGraphStatsWindow(range,
+                                  time(NULL),
+                                  &stats_start,
+                                  &stats_end)) {
+        stats_mins = calloc(graph->series_count, sizeof(*stats_mins));
+        stats_maxes = calloc(graph->series_count, sizeof(*stats_maxes));
+        stats_has_value = calloc(graph->series_count, sizeof(*stats_has_value));
+        if (!stats_mins || !stats_maxes || !stats_has_value) {
+            free(stats_mins);
+            free(stats_maxes);
+            free(stats_has_value);
+            stats_mins = NULL;
+            stats_maxes = NULL;
+            stats_has_value = NULL;
+        }
+    }
+
     loggerWebSendAll(client_fd, "],\"points\":[");
-    writeGraphPointsJson(client_fd, server, graph, range_start, range_end);
+    writeGraphPointsJson(client_fd,
+                         server,
+                         graph,
+                         range_start,
+                         range_end,
+                         stats_start,
+                         stats_end,
+                         stats_mins,
+                         stats_maxes,
+                         stats_has_value);
     loggerWebSendAll(client_fd, "],\"stats\":");
-    writeGraphStatsJson(client_fd, server, graph);
+    writeGraphStatsJson(client_fd,
+                        server,
+                        graph,
+                        stats_start,
+                        stats_end,
+                        stats_mins,
+                        stats_maxes,
+                        stats_has_value);
+    free(stats_mins);
+    free(stats_maxes);
+    free(stats_has_value);
     loggerWebSendAll(client_fd, ",\"eventMarkers\":[");
     writeGraphEventMarkersJson(client_fd, graph);
     loggerWebSendAll(client_fd, "],\"events\":[");
@@ -176,7 +336,12 @@ static void writeGraphPointsJson(PortableSocket client_fd,
                                  const LoggerWebServer* server,
                                  const LoggerWebGraph* graph,
                                  time_t range_start,
-                                 time_t range_end) {
+                                 time_t range_end,
+                                 time_t stats_start,
+                                 time_t stats_end,
+                                 double* stats_mins,
+                                 double* stats_maxes,
+                                 int* stats_has_value) {
     FILE* file = fopen(server->log_path, "r");
     if (!file) {
         return;
@@ -245,6 +410,30 @@ static void writeGraphPointsJson(PortableSocket client_fd,
             continue;
         }
 
+        if (stats_has_value &&
+            record.logged_at >= stats_start &&
+            record.logged_at <= stats_end) {
+            for (size_t i = 0; i < graph->series_count; i++) {
+                if (!has_value[i]) {
+                    continue;
+                }
+
+                // Keep stats in this same pass to avoid re-reading the log file
+                if (!stats_has_value[i]) {
+                    stats_mins[i] = values[i];
+                    stats_maxes[i] = values[i];
+                    stats_has_value[i] = 1;
+                } else {
+                    if (values[i] < stats_mins[i]) {
+                        stats_mins[i] = values[i];
+                    }
+                    if (values[i] > stats_maxes[i]) {
+                        stats_maxes[i] = values[i];
+                    }
+                }
+            }
+        }
+
         //Write the data point in JSON format to the client
         if (wrote_point) {
             loggerWebSendAll(client_fd, ",");
@@ -289,87 +478,23 @@ static void writeGraphPointsJson(PortableSocket client_fd,
 //Write the graph statistics in JSON format for the specified graph
 static void writeGraphStatsJson(PortableSocket client_fd,
                                 const LoggerWebServer* server,
-                                const LoggerWebGraph* graph) {
-    //If the server is not configured to show statistics, send "null" and return                                
-    if (!server->show_stats) {
+                                const LoggerWebGraph* graph,
+                                time_t stats_start,
+                                time_t stats_end,
+                                const double* stats_mins,
+                                const double* stats_maxes,
+                                const int* stats_has_value) {
+    //If the server is not configured to show statistics, send "null" and return
+    if (!server->show_stats || !stats_has_value) {
         loggerWebSendAll(client_fd, "null");
         return;
-    }
-
-    //Get the current time and calculate the start and end of the statistics window
-    time_t window_start = 0;
-    time_t window_end = 0;
-    if (!loggerWebGraphStatsWindow(time(NULL), &window_start, &window_end)) {
-        loggerWebSendAll(client_fd, "null");
-        return;
-    }
-
-    double* mins = calloc(graph->series_count, sizeof(*mins));
-    double* maxes = calloc(graph->series_count, sizeof(*maxes));
-    int* has_value = calloc(graph->series_count, sizeof(*has_value));
-    if (!mins || !maxes || !has_value) {
-        free(mins);
-        free(maxes);
-        free(has_value);
-        loggerWebSendAll(client_fd, "null");
-        return;
-    }
-
-    FILE* file = fopen(server->log_path, "r");
-
-    //See if the file was opened successfully
-    //Then use the contents
-    if (file) {
-        char line[LOGGER_WEB_MAX_LINE];
-        
-        //Read each line of the log file and check if it's within the statistics window.
-        while (fgets(line, sizeof(line), file)) {
-            char* newline = strpbrk(line, "\r\n");
-            if (newline) {
-                *newline = '\0';
-            }
-
-            LogRecord record;
-            if (!logger_record_parse_line(line, &record) ||
-                !record.has_logged_at ||
-                record.logged_at < window_start ||
-                record.logged_at > window_end) {
-                continue;
-            }
-
-            //For each series, parse the value
-            for (size_t i = 0; i < graph->series_count; i++) {
-                double value = 0.0;
-                if (!loggerWebParseDouble(
-                        loggerWebFieldForColumn(&record, graph->series[i].index),
-                        &value)) {
-                    continue;
-                }
-
-                //Update the minimum and maximum values for the series
-                if (!has_value[i]) {
-                    mins[i] = value;
-                    maxes[i] = value;
-                    has_value[i] = 1;
-                } else {
-                    if (value < mins[i]) {
-                        mins[i] = value;
-                    }
-                    if (value > maxes[i]) {
-                        maxes[i] = value;
-                    }
-                }
-            }
-        }
-
-        fclose(file);
     }
 
     //Format the statistics window into human-readable labels
     char start_label[32];
     char end_label[32];
-    loggerWebFormatUnixLabel(window_start, start_label, sizeof(start_label));
-    loggerWebFormatUnixLabel(window_end, end_label, sizeof(end_label));
+    loggerWebFormatUnixLabel(stats_start, start_label, sizeof(start_label));
+    loggerWebFormatUnixLabel(stats_end, end_label, sizeof(end_label));
 
     //Send the statistics data in JSON format to the client
     loggerWebSendAll(client_fd, "{\"windowStart\":\"");
@@ -390,9 +515,9 @@ static void writeGraphStatsJson(PortableSocket client_fd,
 
         //Send the minimum value for the series, using "null" otherwise
         loggerWebSendAll(client_fd, "\",\"min\":");
-        if (has_value[i]) {
+        if (stats_has_value[i]) {
             char number[64];
-            snprintf(number, sizeof(number), "%.17g", mins[i]);
+            snprintf(number, sizeof(number), "%.17g", stats_mins[i]);
             loggerWebSendAll(client_fd, number);
         } else {
             loggerWebSendAll(client_fd, "null");
@@ -400,9 +525,9 @@ static void writeGraphStatsJson(PortableSocket client_fd,
 
         //Send the maximum value for the series, using "null" otherwise
         loggerWebSendAll(client_fd, ",\"max\":");
-        if (has_value[i]) {
+        if (stats_has_value[i]) {
             char number[64];
-            snprintf(number, sizeof(number), "%.17g", maxes[i]);
+            snprintf(number, sizeof(number), "%.17g", stats_maxes[i]);
             loggerWebSendAll(client_fd, number);
         } else {
             loggerWebSendAll(client_fd, "null");
@@ -417,11 +542,8 @@ static void writeGraphStatsJson(PortableSocket client_fd,
         loggerWebSendAll(client_fd, "}");
     }
 
-    //Conclude the JSON object for the statistics data and free memory
+    //Conclude the JSON object for the statistics data
     loggerWebSendAll(client_fd, "]}");
-    free(mins);
-    free(maxes);
-    free(has_value);
 }
 
 //Write the graph events in JSON format for the specified graph and range

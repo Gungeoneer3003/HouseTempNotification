@@ -147,7 +147,10 @@ void loggerWebHandleClient(PortableSocket client_fd, LoggerWebServer* server) {
     } else if (pathEquals(path, "/graphs/data") ||
                (loggerWebRootDirectoryEquals(server, LOGGER_WEB_ROOT_GRAPHS) &&
                 pathEquals(path, "/data"))) {
-        loggerWebSendGraphData(client_fd, server, loggerWebParseGraphRange(request));
+        loggerWebSendGraphData(client_fd,
+                               server,
+                               loggerWebParseGraphRange(request),
+                               request);
     } else if (pathEquals(path, "/graphs")) {
         pollForPageAccess(server, 0);
         loggerWebSendGraphs(client_fd, server, 0);

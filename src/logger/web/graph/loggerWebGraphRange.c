@@ -201,12 +201,31 @@ static int localDayStart(time_t value, int day_offset, time_t* out) {
     return 1;
 }
 
-//Calculate the start and end times for the last 24 hours,
-//aligned to the start of the current day
-int loggerWebGraphStatsWindow(time_t now, time_t* window_start, time_t* window_end) {
+// Calculate the stats window for the selected graph range
+// Day keeps its existing today-or-last-24-hours behavior unchanged
+int loggerWebGraphStatsWindow(LoggerWebGraphRange range,
+                              time_t now,
+                              time_t* window_start,
+                              time_t* window_end) {
     //Check if the window_start and window_end pointers are valid
     if (!window_start || !window_end) {
         return 0;
+    }
+
+    if (range == LOGGER_WEB_GRAPH_RANGE_THREE_DAYS) {
+        if (!localDayStart(now, -2, window_start)) {
+            return 0;
+        }
+        *window_end = now;
+        return 1;
+    }
+
+    if (range == LOGGER_WEB_GRAPH_RANGE_WEEK) {
+        if (!localDayStart(now, -6, window_start)) {
+            return 0;
+        }
+        *window_end = now;
+        return 1;
     }
 
     //Convert the current time to local time and calculate the start of today
